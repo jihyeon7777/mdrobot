@@ -16,8 +16,10 @@ jobs:
           python-version: "3.12"
       - name: Install mdrobot
         run: pip install -e 'src/mdrobot[serial,dev]'
+      - name: Install mdrobot_mecanum
+        run: pip install -e 'src/mdrobot_mecanum[dev]'
       - name: Run unit tests
-        run: python -m pytest src/mdrobot/test -v
+        run: python -m pytest src/mdrobot/test src/mdrobot_mecanum/test -v
 
   ros2:
     name: ROS 2 Jazzy (colcon build + test)
@@ -39,5 +41,5 @@ jobs:
         shell: bash
         run: |
           source /opt/ros/jazzy/setup.bash
-          colcon test --packages-select mdrobot mdrobot_cpp mdrobot_ros2_control --event-handlers console_cohesion+
+          colcon test --packages-select mdrobot mdrobot_cpp mdrobot_mecanum mdrobot_ros2_control --event-handlers console_cohesion+
           colcon test-result --verbose

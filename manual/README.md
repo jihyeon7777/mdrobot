@@ -17,6 +17,7 @@ is optional** — a convenience for not retyping the port (a udev fixed name and
 | 2 | **[C++ library](cpp.md)** | `mdrobot_cpp` — same API in C++ (`*Connection::open` factory, object lifetime, **API reference tables**, error handling). |
 | 3 | **[ROS 2 node](ros2.md)** | `mdrobot_ros2_driver` — build, launch, parameters, topics/services, `joint_states` units, shutdown, troubleshooting. |
 | 4 | **[ros2_control (C++)](ros2_control.md)** | `mdrobot_ros2_control` — the `SystemInterface` plugin: URDF parameters, state/command interfaces, units, controllers, and **twin mode** (two single-channel controllers on one bus). |
+| 5 | **[Mecanum drive](mecanum.md)** | `mdrobot_mecanum` — a *robot* layer rather than a driver: 4 wheels on two dual-channel controllers, bring-up wizard, kinematics, keyboard teleop. Pure Python, no ROS 2. |
 
 ## Reference
 

@@ -40,3 +40,9 @@ htmlcov/
 
 # ctest output
 /Testing/
+
+# Robot-specific mecanum config, produced during bring-up. Yours describes YOUR
+# robot's wheel map and dimensions, so it is local by default. Commit it
+# deliberately (git add -f mecanum.yaml) if you want it tracked with the robot.
+/mecanum.yaml
+/mecanum.yaml.bak
