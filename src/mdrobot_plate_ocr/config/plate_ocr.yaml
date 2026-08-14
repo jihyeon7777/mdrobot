@@ -1,0 +1,96 @@
+# Parameters for mdrobot_plate_ocr.
+#
+#   ros2 launch mdrobot_plate_ocr plate_ocr.launch.py
+#   ros2 launch mdrobot_plate_ocr plate_ocr.launch.py config:=/path/to/your.yaml
+#
+# Every value below was measured on a Raspberry Pi 5 with a Microdia "Vitade AF"
+# webcam reading a printed 123가4568 plate at ~1 m. A different camera, plate or
+# room needs a re-measurement, not a guess:
+#
+#   python3 examples/plate_ocr_probe.py --shot debug/shot.jpg
+#   python3 examples/plate_ocr_probe.py --matrix debug/shot.jpg
+
+/**:
+  ros__parameters:
+    # --- camera ---------------------------------------------------------
+    device: /dev/video0
+    width: 1920                     # px; 1080p, not 720p — a frame costs the
+    height: 1080                    #   same 64 ms and this camera's 720p mode
+                                    #   is a narrower crop that left the glyphs
+                                    #   at ~20 px, under Tesseract's 30-40 range
+    fps: 30
+    rotate: 0                       # deg clockwise; 0, 90, 180 or 270
+    # Applied with v4l2-ctl, not OpenCV: CAP_PROP_AUTO_EXPOSURE silently no-ops
+    # on this UVC driver. A control the camera lacks is a warning, not an error.
+    v4l2_controls:
+      - power_line_frequency=2      # 0=off, 1=50Hz, 2=60Hz (Korea)
+      - auto_exposure=1             # 1=manual, 3=aperture priority
+      - exposure_time_absolute=60   # overwritten by exposure_start below
+      - exposure_dynamic_framerate=0
+      - backlight_compensation=0
+      - gain=0
+
+    # --- exposure -------------------------------------------------------
+    # The camera's own metering averages the whole scene, and a white wall with
+    # white paper on it reads as "bright" — so it exposes for the average and
+    # pushes the plate's thin print into saturation. adaptive meters the region
+    # the OCR actually reads and follows the light, so a value measured on the
+    # bench does not stop working in a darker room. From a badly overexposed
+    # 40 ms it converged to 6.4 ms in seven steps and resumed reading.
+    exposure_mode: adaptive         # adaptive | manual | camera
+    exposure_start: 60              # 100 us units -> 6 ms
+    exposure_min: 4                 # 0.4 ms; below this the sensor gives noise
+    exposure_max: 1500              # 150 ms; beyond this motion blur dominates
+    exposure_target_mean: 150.0     # of the metered region, 0-255
+
+    # Only used to turn the plate's pixel offset into an angle; never affects
+    # recognition. Nominal for this webcam, not a calibration.
+    hfov_deg: 70.0
+
+    # --- recognition ----------------------------------------------------
+    ocr_rate: 3.0                   # Hz. One iteration measured ~180 ms in
+                                    #   the probe, but 4.0 Hz overran its
+                                    #   250 ms budget on the node's slower
+                                    #   frames; 333 ms has the headroom
+    ocr_backend: auto               # auto | tesserocr | cli. tesserocr loads
+                                    #   the model once; the CLI reloads it on
+                                    #   every call (150-400 ms wasted)
+    lang: kor                       # the Hangul syllable
+    digit_lang: eng                 # MUST be eng: kor plus a digit whitelist
+                                    #   returns nothing at all
+    psm: 7                          # 7 = one text line
+    detector: textband              # textband | contour | none. textband looks
+                                    #   for a wide run of vertical strokes, so
+                                    #   no hand-set roi is needed
+    strategy: split                 # split | line. split cuts the crop into
+                                    #   characters first; line reads 7 of the 8
+    syllable_source: template       # template | tesseract. Tesseract read the
+                                    #   가 on this plate as 기 — not even a
+                                    #   syllable a Korean plate can carry
+    preprocess: none                # line strategy only; split binarises itself
+    upscale: 3.0
+    roi: [-1, -1, -1, -1]           # [-1,-1,-1,-1] = whole frame
+
+    # --- validation -----------------------------------------------------
+    plate_regex: "^\\d{2,3}[가-힣]\\d{4}$"   # 12가3456 and 123가4567
+    require_legal_syllable: true    # only the 40 syllables plates actually use
+    min_confidence: 0.0             # off: a wrong read scored 96 and a correct
+                                    #   one 86, so confidence cannot separate
+    min_syllable_margin: 0.0        # off; correct template matches scored a
+                                    #   median margin of 0.106, wrong ones
+                                    #   0.029-0.053, if you want to use it
+
+    # --- publishing -----------------------------------------------------
+    confirm_count: 3                # same text 3 times inside the window. Over
+    history_size: 5                 #   219 live frames this published only the
+                                    #   correct plate, with 4 wrong reads seen
+    repeat_interval_s: 3.0          # s; quiet period per plate after publishing
+    publish_detail: true            # ~/plate_detail, every attempt, for SSH
+
+    # --- debug images ---------------------------------------------------
+    debug_dir: debug/plate_ocr      # relative to the launch working directory.
+                                    #   "" disables. Keep it inside the folder
+                                    #   open in your editor: a file watcher is
+                                    #   unreliable outside the workspace root
+    debug_ring_size: 30             # frames/000.jpg .. keeps the rejects too
+    debug_keep_hits: true           # hits/<n>_<plate>.jpg on every publish

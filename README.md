@@ -32,6 +32,7 @@ The project is a colcon workspace of complementary packages — use only what yo
 | [`mdrobot_cpp`](src/mdrobot_cpp) | **C++ communication library** — the same layers as `mdrobot` (POSIX `termios` transport, CRC, Modbus RTU, registers, status, units, single/dual drivers). `ament_cmake`. |
 | [`mdrobot_ros2_driver`](src/mdrobot_ros2_driver) | A generic **ROS 2 node** (Python) that wraps the library and exposes per-motor velocity/position commands and motor state. |
 | [`mdrobot_ros2_control`](src/mdrobot_ros2_control) | A C++ [`ros2_control`](https://control.ros.org) **`SystemInterface` plugin** wrapping `mdrobot_cpp`. One plugin for every shape via `device_type` (single → 1 joint; dual → 2 joints on one two-channel controller; **twin → 2 joints on two single-channel controllers** at distinct slave ids on one bus, for a skid-steer base); exports position/velocity/effort state and velocity/position command interfaces. |
+| [`mdrobot_plate_ocr`](src/mdrobot_plate_ocr) | Not a motor driver — a **camera** package that reads a Korean licence plate and publishes the text, plus where the plate sits relative to the centre of the frame. Deliberately publishes **no image topic**: this robot is reached over SSH, where streaming frames to a remote RViz was too slow to see anything, so framing is checked through annotated JPEGs on disk instead. Depends on nothing else in this workspace. |
 
 - **Single-channel** controllers (one motor) → `SingleMotorDriver`
 - **Dual-channel** controllers (two motors) → `DualMotorDriver`
@@ -49,7 +50,8 @@ mdrobot_motor_driver/            # this repo == a colcon workspace
     ├── mdrobot_cpp/             # C++ communication library (ament_cmake)
     ├── mdrobot_ros2_driver/     # Python ROS 2 node (ament_python), depends on mdrobot
     ├── mdrobot_ros2_control/    # C++ ros2_control SystemInterface (ament_cmake), depends on mdrobot_cpp
-    └── mdrobot_diffbot_example/ # optional example diff-drive robot (see its own README)
+    ├── mdrobot_diffbot_example/ # optional example diff-drive robot (see its own README)
+    └── mdrobot_plate_ocr/       # licence plate OCR from a USB camera (ament_python), standalone
 manual/                          # detailed user manual
 examples/                        # minimal standalone examples
 ```

@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mdrobot_plate_ocr</name>
+  <version>1.3.0</version>
+  <description>
+    Reads a Korean licence plate from a USB camera and publishes the text as a
+    ROS 2 topic — no image topic, because the robot is reached over SSH and
+    streaming frames to a remote RViz was too slow to be usable. Framing is
+    checked through annotated JPEGs written to disk instead. Depends on nothing
+    else in this workspace; it shares the robot, not the motor bus.
+  </description>
+  <maintainer email="taesuyim.kopo@gmail.com">Taesu Yim</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+  <!-- The Tesseract engine and CLI. The Korean language data
+       (tesseract-ocr-kor) and the faster Python binding (python3-tesserocr)
+       have no rosdep keys, so they are an apt line in the README instead;
+       declaring a key that does not resolve only adds noise to every CI log. -->
+  <exec_depend>tesseract-ocr</exec_depend>
+  <!-- v4l2-ctl: exposure and anti-flicker, which OpenCV cannot set reliably. -->
+  <exec_depend>v4l-utils</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
