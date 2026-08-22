@@ -129,16 +129,13 @@ mdrobot::SingleMotorDriver drv(client);   // drv references client; keep both al
 | `set_encoder_ppr(int ppr, double settle=2.5, bool verify=true)` | `void` | Use the encoder; `ppr` is its **rated** pulses-per-rev. |
 | `disable_encoder(double settle=2.5, bool verify=true)` | `void` | Turn the encoder off (`ppr = 0`). |
 | `get_use_encoder_position()` | `bool` | Position source: `true` = encoder counts, `false` = hall counts (default). |
-| `set_use_encoder_position(bool enabled, double settle=0.2, bool verify=true)` | `void` | Switch the position source (needs a nonzero `ENC_PPR`). Read the warnings first. |
+| `set_use_encoder_position(bool enabled, double settle=0.2, bool verify=true)` | `void` | Switch the position source (needs a nonzero `ENC_PPR`). |
 
-By default an encoder improves the **velocity** loop only — reported position stays on
-the hall counter. Give it the encoder's real PPR: a value larger than the real one
-makes the motor turn **faster than commanded** with no symptom in the reported speed or
-position. `set_use_encoder_position(true)` additionally switches reported position and
-position control onto the encoder (counts/rev = 4 × PPR) — **the physical sign
-convention flips** and in-position gets much stricter. Full notes:
-[Python manual → Encoder](python.md#encoder-velocity-feedback) and
-[→ Encoder position source](python.md#encoder-position-source).
+By default an encoder improves the **velocity** loop only; `set_use_encoder_position(true)`
+additionally switches position onto the encoder (counts/rev = 4 × PPR). Before using
+either, read **[Using an encoder](encoder.md)**: a too-large `ppr` runs faster than
+commanded with no software symptom, and the encoder position source flips the physical
+sign convention.
 
 ## `DualMotorDriver`
 

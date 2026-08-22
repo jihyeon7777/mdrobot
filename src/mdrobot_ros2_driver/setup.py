@@ -7,7 +7,7 @@ package_name = "mdrobot_ros2_driver"
 
 setup(
     name=package_name,
-    version="1.3.0",
+    version="1.4.0",
     packages=find_packages(exclude=["test"]),
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),

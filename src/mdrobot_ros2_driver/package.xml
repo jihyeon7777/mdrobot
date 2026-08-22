@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>mdrobot_ros2_driver</name>
-  <version>1.3.0</version>
+  <version>1.4.0</version>
   <description>
     Generic ROS 2 driver node for MDROBOT MD-series BLDC/DC motor controllers
     (RS485 / Modbus RTU). Supports single-channel and dual-channel controllers via

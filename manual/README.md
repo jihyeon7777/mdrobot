@@ -18,6 +18,9 @@ is optional** — a convenience for not retyping the port (a udev fixed name and
 | 3 | **[ROS 2 node](ros2.md)** | `mdrobot_ros2_driver` — build, launch, parameters, topics/services, `joint_states` units, shutdown, troubleshooting. |
 | 4 | **[ros2_control (C++)](ros2_control.md)** | `mdrobot_ros2_control` — the `SystemInterface` plugin: URDF parameters, state/command interfaces, units, controllers, and **twin mode** (two single-channel controllers on one bus). |
 
+Topic guide: **[Using an encoder](encoder.md)** — velocity feedback (`ENC_PPR`),
+the encoder position source (`USE_EPOSI`), and their safety notes.
+
 ## Reference
 
 Not a reading step — a lookup companion to every page above:
@@ -39,14 +42,10 @@ firmware such as v8.1 needs nothing here.) **Until you do, the first command mak
 motor lurch ~0.6 s and then alarm** — keep clear on the first power-up.
 
 If you **are** using an encoder, wire it and set `ENC_PPR` to the encoder's rated
-pulses-per-rev (`driver.set_encoder_ppr(1000)`). By default the encoder feeds the
-controller's **velocity** loop — reported position stays on the hall counter, so
-`counts_per_rev` does not change. On firmware that supports it (verified on v8.6),
-position can additionally be switched onto the encoder for 4 × PPR resolution
-(`driver.set_use_encoder_position(True)`) — read
-[Encoder position source](python.md#encoder-position-source) first: the physical sign
-convention flips. See [Encoder](python.md#encoder-velocity-feedback) for the safety note:
-a PPR larger than the real one makes the motor turn faster than commanded.
+pulses-per-rev (`driver.set_encoder_ppr(1000)`); on supported firmware, position can
+also be switched onto the encoder. Read **[Using an encoder](encoder.md)** first —
+a PPR larger than the real one makes the motor turn faster than commanded, and the
+encoder position source flips the physical sign convention.
 
 For the full ordered first-drive sequence (comms check → `ENC_PPR` → `USE_LIMIT_SW` →
 `enable()` → low rpm + dwell + a stop in reach), see the

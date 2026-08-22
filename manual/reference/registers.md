@@ -26,10 +26,10 @@ PIDs the driver defines; the controller has more.
 | `PID_USE_LIMIT_SW` | 17 | R/W | CTRL limit-switch function (0 cancel, 1 use); default 1. With `1`, CTRL pin 6 (`DIR`) gates CW/negative rpm and pin 8 (`START/STOP`) gates CCW/positive rpm |
 | `PID_HALL_TYPE` | 21 | R/W | Motor pole / hall type (0:4p, 1:8p, **2:10p**, 3:12p, 4:2p, 5:6p). Sets the hall resolution: `counts/rev = 3 × poles` |
 | `PID_INPUT_TYPE` | 25 | R/W | User input type |
-| `PID_POS_SEN_TYPE` | 26 | R/W | Position signal type (0 HALL, 1 EPOSI, 2 POT, 3/4 MENA). Follows `PID_USE_EPOSI` automatically in both directions — no need to write it |
+| `PID_POS_SEN_TYPE` | 26 | R/W | Position signal type (0 HALL, 1 EPOSI, 2 POT, 3/4 MENA); follows `PID_USE_EPOSI` automatically — no need to write it |
 | `PID_USE_LIMIT_SW2` | 29 | R/W | Motor-2 limit-switch function (dual); same meaning as 17 |
 | `PID_CTRL_STATUS` | 34 | R | Status bit map (status-1) |
-| `PID_USE_EPOSI` | 46 | R/W | Position source (0 hall counter, 1 encoder); default 0. Encoder source: counts/rev = 4 × `ENC_PPR` and the physical +/− direction flips vs hall mode — see [Encoder position source](../python.md#encoder-position-source). EEPROM; immediate effect. Verified on MD400 v8.6 |
+| `PID_USE_EPOSI` | 46 | R/W | Position source (0 hall counter, 1 encoder); default 0. Encoder source: counts/rev = 4 × `ENC_PPR`, physical +/− flips vs hall — see [Using an encoder](../encoder.md) |
 | `PID_DI` | 48 | R | Digital-input bits |
 | `PID_IN_POSITION_OK` | 49 | R | Position control done (0/1) |
 | `PID_UI_COM` | 78 | R/C | Serial-comm control (0 = CTRL I/O, 1 = serial only) |

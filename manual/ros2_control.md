@@ -99,10 +99,8 @@ velocity disagree by the ratio. With a gearbox, keep `counts_per_rev` at the mot
 and set `diff_drive_controller`'s `wheel_radius` to the effective radius
 (wheel radius ÷ gear ratio). See the [Python manual](python.md#unit-conversion-mdrobotunits).
 The hall counter gives `3 × pole count` per revolution; if you switched the position
-source onto the encoder with
-[`set_use_encoder_position(True)`](python.md#encoder-position-source), use
-`4 × PPR` instead and re-check direction signs — that mode flips the physical sign
-convention.
+source onto the encoder ([Using an encoder](encoder.md)), use `4 × PPR` instead and
+re-check direction signs — that mode flips the physical sign convention.
 
 ### Minimal URDF (single)
 

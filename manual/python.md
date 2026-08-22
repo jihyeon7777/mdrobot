@@ -237,87 +237,32 @@ with DualMotorDriver.open("/dev/ttyUSB0") as d:
     d.stop(); d.torque_off_both()
 ```
 
-## Encoder velocity feedback
+## Encoder
 
-`SingleMotorDriver` only. An attached encoder is a **speed sensing input** for the
-controller by default — that is how the vendor protocol manual defines register 156. On
-its own it does **not** change the reported position: position is defined as `3 × pole
-count` per revolution and stays on the hall counter, so `counts_per_rev` for odometry is
-the same with or without an encoder. (Position **can** additionally be switched onto the
-encoder on firmware that supports it — see
-[Encoder position source](#encoder-position-source) below.)
-
-What it buys you is control quality — the vendor manual sells the encoder for 4-quadrant
-servo drive, holding speed under load, and crisper position moves. On a **no-load** bench
-run at a steady 10–30 rpm we measured no clear difference against hall feedback, so judge
-it under your own load. Verified on MD400 v8.6 with a 1000 PPR encoder.
+`SingleMotorDriver` only. Full guide — what an encoder changes, and the safety
+notes: **[Using an encoder](encoder.md)**.
 
 | Method | Returns | Description |
 |---|---|---|
 | `get_encoder_ppr()` | `int` | Current setting; `0` = encoder off (hall closed-loop). |
 | `set_encoder_ppr(ppr)` | `None` | Use the encoder; `ppr` is its **rated pulses-per-rev**. |
 | `disable_encoder()` | `None` | Turn the encoder off (`ppr = 0`). |
-
-```python
-d.set_encoder_ppr(1000)   # encoder wired, rated 1000 PPR
-print(d.get_encoder_ppr())
-d.disable_encoder()       # back to hall closed-loop
-```
-
-> **Give it the encoder's real PPR.** The controller trusts this number as one
-> revolution, so a mismatch scales the actual speed by `configured / actual`. A value
-> that is **too large makes the motor turn faster than commanded**, and nothing in the
-> reported speed or position reveals it — a too-small value only runs slow, so start low
-> if you are unsure. A wrong value also makes the reported speed jitter badly.
-
-> The encoder must be wired: with a nonzero PPR and no encoder signal the controller
-> trips `ENC_FAIL` about 0.6 s after the motor starts. Both calls write to EEPROM and
-> survive a power cycle. The write can reinitialise the controller, so they take a
-> couple of seconds and then read the value back to confirm (`MdrobotError` if it did
-> not stick); pass `verify=False` to skip that, `settle=` to change the delay.
-
-## Encoder position source
-
-`SingleMotorDriver` only; verified on MD400 v8.6. Newer firmware has a register the
-2021 protocol manual does not list — `USE_EPOSI (46)`, from the vendor's RS485 spec
-V6.55 — that switches **reported position and position control** from the hall counter
-onto the encoder:
-
-| Method | Returns | Description |
-|---|---|---|
 | `get_use_encoder_position()` | `bool` | `True` = position is encoder counts; `False` = hall counts (default). |
-| `set_use_encoder_position(enabled)` | `None` | Switch the position source. Read the warnings below first. |
+| `set_use_encoder_position(enabled)` | `None` | Switch the position source (needs a nonzero `ENC_PPR`). |
 
 ```python
-d.set_encoder_ppr(1000)            # rated PPR — required first (see above)
-d.set_use_encoder_position(True)   # position source = encoder
-d.reset_position()                 # re-zero so the counter reference is unambiguous
-d.move_by(4000, speed=25)          # 4000 counts = exactly one revolution now
+d.set_encoder_ppr(1000)            # encoder wired, rated 1000 PPR
+d.set_use_encoder_position(True)   # optional: position = encoder counts (4 x PPR per rev)
+d.reset_position()
 d.set_use_encoder_position(False)  # back to hall counts
+d.disable_encoder()                # hall closed-loop
 ```
 
-With the encoder source, one revolution is **4 × the rated PPR** in counts (quadrature
-counts: a 1000 PPR encoder gives 4000 counts/rev — 0.09° per count, vs 12° for a
-10-pole hall counter), and arrival accuracy of about ±1 count (±0.1°) was measured.
-The switch takes effect immediately, survives a power cycle (EEPROM), and requires a
-nonzero `ENC_PPR` (the call refuses otherwise).
-
-> **The sign convention flips physically.** With the encoder source, `+` commands and
-> increasing position turned the verified motors **CW**, where in hall mode `+` is CCW.
-> Anything above the driver that assumes the hall convention — odometry signs,
-> `counts_per_rev` consumers, direction logic — must remap signs after switching.
-
-> **Arrival gets strict.** The in-position window is in counts, so at 133× finer
-> resolution the motor creeps toward the target and `wait_in_position()` can take many
-> seconds — or time out — while the physical error is well under a degree. Always pass
-> a timeout, and treat `False` as "close but not latched", not as a failed move.
-
-> Switch only while the motor is stopped, then call `reset_position()`. Position is a
-> 32-bit count, so at 4 × PPR it overflows about 133× sooner than hall counts (about
-> ±0.5M turns at 4000 counts/rev — the vendor spec warns about this). The first
-> read-back after the write can return the old value; the call verifies with retries
-> and raises `MdrobotError` if the value never sticks (e.g. firmware without this
-> register).
+Two things to know before using these — details in [Using an encoder](encoder.md):
+a too-large `ppr` makes the motor turn **faster than commanded** with no software
+symptom, and the encoder position source **flips the physical sign convention**
+(`+` turned CW where hall `+` is CCW). Both setters read the value back and raise
+`MdrobotError` if it did not stick; pass `verify=False` / `settle=` to tune that.
 
 ## Acceleration / deceleration (slow-start / slow-down)
 
