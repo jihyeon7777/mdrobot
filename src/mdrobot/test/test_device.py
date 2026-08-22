@@ -229,6 +229,50 @@ def test_set_encoder_ppr_rejects_out_of_range():
     assert dev.frames == []
 
 
+# --- encoder position source (USE_EPOSI) ---------------------------------------------
+# Enabling first reads ENC_PPR (the ENC_PPR=0 guard), so the 46 write is frames[1].
+
+def test_get_use_encoder_position_reads_register():
+    drv, _ = make_single({reg.PID_USE_EPOSI: [1]})
+    assert drv.get_use_encoder_position() is True
+    drv2, _ = make_single()
+    assert drv2.get_use_encoder_position() is False
+
+
+def test_set_use_encoder_position_writes_then_verifies():
+    # the fake keeps registers static, so seed the value the write is expected to land on
+    drv, dev = make_single({reg.PID_USE_EPOSI: [1], reg.PID_ENC_PPR: [1000]})
+    drv.set_use_encoder_position(True, settle=0.0)
+    assert dev.frames[1] == w1(reg.PID_USE_EPOSI, 1)
+
+
+def test_set_use_encoder_position_false_writes_zero():
+    drv, dev = make_single()  # reads back 0 = the written value; no ENC_PPR guard read
+    drv.set_use_encoder_position(False, settle=0.0)
+    assert dev.frames[0] == w1(reg.PID_USE_EPOSI, 0)
+
+
+def test_set_use_encoder_position_raises_when_not_applied():
+    # read-back stays 0 although 1 was written (e.g. firmware ignoring the register)
+    drv, _ = make_single({reg.PID_ENC_PPR: [1000]})
+    with pytest.raises(MdrobotError):
+        drv.set_use_encoder_position(True, settle=0.0)
+
+
+def test_set_use_encoder_position_can_skip_verification():
+    drv, dev = make_single({reg.PID_ENC_PPR: [1000]})
+    drv.set_use_encoder_position(True, settle=0.0, verify=False)
+    assert dev.frames[1] == w1(reg.PID_USE_EPOSI, 1)
+    assert len(dev.frames) == 2  # guard read + write, no read-back
+
+
+def test_set_use_encoder_position_requires_encoder_ppr():
+    drv, dev = make_single()  # ENC_PPR reads 0 -> refused before any write
+    with pytest.raises(MdrobotError):
+        drv.set_use_encoder_position(True, settle=0.0)
+    assert w1(reg.PID_USE_EPOSI, 1) not in dev.frames
+
+
 # --- DualMotorDriver -----------------------------------------------------------------
 
 def test_dual_set_velocities_uses_two_legacy_pids():

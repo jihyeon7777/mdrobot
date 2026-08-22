@@ -124,8 +124,13 @@ ros2 run mdrobot_ros2_driver motor_driver_node --ros-args \
 falls back to raw with a warning. Starting points (but **measure** — it is per motor):
 3 × pole count (8-pole ≈ 24, 10-pole ≈ 30, 4-pole ≈ 12); measure with
 [`examples/calibrate_counts_per_rev.py`](../examples/calibrate_counts_per_rev.py).
-**Attaching an encoder does not change this** — the reported position stays on the hall
-counter, and the encoder only feeds the controller's velocity loop (verified on MD400 v8.6).
+**Attaching an encoder does not change this by default** — the reported position stays
+on the hall counter, and the encoder only feeds the controller's velocity loop (verified
+on MD400 v8.6). The exception: if you switched the position source with
+[`set_use_encoder_position(True)`](python.md#encoder-position-source), position becomes
+encoder counts — use `counts_per_rev = 4 × PPR` (e.g. 4000 for a 1000 PPR encoder) and
+note the **sign convention flips physically** in that mode, so re-check direction and
+odometry signs.
 
 It is counts per **one revolution of the motor shaft** and scales the position state
 only (velocity is `rpm → rad/s` regardless); keep it at the motor and handle any

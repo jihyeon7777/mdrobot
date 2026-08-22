@@ -98,6 +98,11 @@ is **not** applied here: it scales the position state only, while velocity is
 velocity disagree by the ratio. With a gearbox, keep `counts_per_rev` at the motor
 and set `diff_drive_controller`'s `wheel_radius` to the effective radius
 (wheel radius ÷ gear ratio). See the [Python manual](python.md#unit-conversion-mdrobotunits).
+The hall counter gives `3 × pole count` per revolution; if you switched the position
+source onto the encoder with
+[`set_use_encoder_position(True)`](python.md#encoder-position-source), use
+`4 × PPR` instead and re-check direction signs — that mode flips the physical sign
+convention.
 
 ### Minimal URDF (single)
 
@@ -170,7 +175,7 @@ controllers are untested for this write.)*
 |---|---|
 | `motor_id_L` / `motor_id_R` | each controller's Modbus slave id — **must differ** (`on_init` rejects equal ids) |
 | `reverse_L` / `reverse_R` | `true`/`false`. A skid-steer mounts the two motors mirrored, so one side usually needs `reverse: true` for `+cmd_vel.x` to drive the base forward. Applied symmetrically to commands **and** feedback, so odometry stays consistent. Default `false` on both — drive the base, see which side spins backwards, then set it. Note the `reverse: true` wheel receives **negative** rpm when the base drives forward, so a CTRL stop switch must gate **both** directions on **both** controllers — see [Stop input](README.md#stop-input-ctrl-connector). |
-| `counts_per_rev_L` / `counts_per_rev_R` | per-wheel counts per rev (hall = `3 × pole count`). Left/right may differ if the motors are not matched; keep it **positive** (it is the SI gate — use `reverse` for direction, never a negative `counts_per_rev`). |
+| `counts_per_rev_L` / `counts_per_rev_R` | per-wheel counts per rev (hall = `3 × pole count`; encoder position source = `4 × PPR`). Left/right may differ if the motors are not matched; keep it **positive** (it is the SI gate — use `reverse` for direction, never a negative `counts_per_rev`). |
 
 **Partial-failure policy.** If one controller stops responding, the driver
 commands **zero speed to the other** wheel as well — a mobile base must not keep

@@ -188,6 +188,37 @@ int SingleMotorDriver::read_encoder_ppr_retrying() {
   throw ProtocolError("unreachable");  // loop above always returns or throws
 }
 
+// --- encoder position source (USE_EPOSI) ---
+// Hardware-verified 2026-08-22 (2x MD400 v8.6, 1000 PPR encoders): PID_USE_EPOSI(46)
+// switches reported position AND position control onto the encoder counter
+// (counts/rev = 4 x ENC_PPR) and flips the physical +/- direction vs hall mode.
+namespace {
+constexpr int kEposiVerifyTries = 5;
+}  // namespace
+
+bool SingleMotorDriver::get_use_encoder_position() {
+  return client_.read_register(PID_USE_EPOSI) != 0;
+}
+
+void SingleMotorDriver::set_use_encoder_position(bool enabled, double settle, bool verify) {
+  if (enabled && get_encoder_ppr() == 0) {
+    throw ProtocolError(
+        "cannot enable encoder position with ENC_PPR = 0 - "
+        "call set_encoder_ppr() with the encoder's rated PPR first");
+  }
+  const uint16_t value = enabled ? 1 : 0;
+  client_.write_register(PID_USE_EPOSI, value);
+  if (!verify) return;
+  uint16_t readback = 0;
+  for (int attempt = 0; attempt < kEposiVerifyTries; ++attempt) {
+    std::this_thread::sleep_for(std::chrono::duration<double>(settle));
+    readback = client_.read_register(PID_USE_EPOSI);
+    if (readback == value) return;
+  }
+  throw ProtocolError("PID_USE_EPOSI not applied: wrote " + std::to_string(value) +
+                      ", read back " + std::to_string(readback));
+}
+
 void SingleMotorDriver::set_slow_start(double s, double fs) { set_slow(PID_SLOW_START, s, fs); }
 double SingleMotorDriver::get_slow_start(double fs) { return get_slow(PID_SLOW_START, fs); }
 void SingleMotorDriver::set_slow_down(double s, double fs) { set_slow(PID_SLOW_DOWN, s, fs); }

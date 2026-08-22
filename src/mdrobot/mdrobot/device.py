@@ -43,6 +43,11 @@ START = 1
 STOP = 0
 # Writing PID_ENC_PPR(156) can reinitialise the controller; wait this long before reading back.
 ENCODER_SETTLE_S = 2.5
+# PID_USE_EPOSI(46) applies immediately without reinitialising, but the first read-back can
+# still return the OLD value; wait this long before each read-back attempt.
+EPOSI_SETTLE_S = 0.2
+# How many read-back attempts set_use_encoder_position makes before giving up.
+EPOSI_VERIFY_TRIES = 5
 
 
 class _DriverBase:
@@ -282,6 +287,64 @@ class SingleMotorDriver(_DriverBase):
                     raise
                 time.sleep(delay)
         raise AssertionError("unreachable")  # pragma: no cover
+
+    # --- encoder position source (USE_EPOSI) -------------------------------------------
+    # Hardware-verified 2026-08-22 (2x MD400 v8.6, 1000 PPR encoders). PID_USE_EPOSI(46)
+    # comes from the RS485 spec V6.55; it is absent from the 2021 Modbus protocol PDF.
+    def get_use_encoder_position(self) -> bool:
+        """Whether reported position and position control use the encoder (`PID_USE_EPOSI`)."""
+        return bool(self.client.read_register(reg.PID_USE_EPOSI))
+
+    def set_use_encoder_position(self, enabled: bool, *, settle: float = EPOSI_SETTLE_S,
+                                 verify: bool = True) -> None:
+        """Switch the position source between the hall counter and an attached encoder.
+
+        With True, reported position (`get_position`, the monitor) and position-control
+        targets (`move_to` / `move_by`) are in ENCODER counts: counts/rev = 4 x the
+        `ENC_PPR` setting (quadrature counts - a 1000 PPR encoder gives 4000 counts/rev,
+        0.09 deg resolution). With False (the factory default) they are hall counts
+        (3 x poles per rev). The switch takes effect immediately, is stored in EEPROM
+        (survives a power cycle), and updates `PID_POS_SEN_TYPE(26)` automatically in
+        both directions. Switch only while the motor is stopped, and call
+        `reset_position()` afterwards so the counter reference is unambiguous.
+
+        WARNING (verified on MD400 v8.6):
+
+        - The physical direction convention flips versus hall mode: with the encoder
+          source, + commands and increasing position turned the verified motors CW,
+          where hall-mode + is CCW. Remap signs in any layer that assumes the hall
+          convention (odometry, `counts_per_rev` users, direction logic).
+        - The `IN_POSITION_OK` arrival window is in counts, so at 133x finer resolution
+          arrival becomes much stricter: the motor creeps toward the target and the flag
+          can take many seconds - or not latch at all - while the physical error is well
+          under a degree. Always give `wait_in_position()` a timeout.
+        - Position is a 32-bit count; at 4 x PPR resolution it overflows ~133x sooner
+          than in hall mode (the vendor spec warns about this explicitly).
+
+        Enabling requires a nonzero `ENC_PPR` (a wired, configured encoder); enabling
+        with `ENC_PPR = 0` is refused because that combination is undefined.
+        The write itself is acknowledged normally (no controller reinitialisation), but
+        the first read-back can still return the old value - `verify` therefore retries
+        the read-back (up to ``EPOSI_VERIFY_TRIES`` times, waiting `settle` before each)
+        and raises `MdrobotError` if the value never sticks (e.g. older firmware
+        silently ignoring the register).
+        """
+        if enabled and self.get_encoder_ppr() == 0:
+            raise MdrobotError(
+                "cannot enable encoder position with ENC_PPR = 0 - "
+                "call set_encoder_ppr() with the encoder's rated PPR first")
+        value = 1 if enabled else 0
+        self.client.write_register(reg.PID_USE_EPOSI, value)
+        if not verify:
+            return
+        readback = None
+        for _ in range(EPOSI_VERIFY_TRIES):
+            time.sleep(settle)
+            readback = self.client.read_register(reg.PID_USE_EPOSI)
+            if readback == value:
+                return
+        raise MdrobotError(
+            f"PID_USE_EPOSI not applied: wrote {value}, read back {readback}")
 
     # --- slow-start / slow-down (acceleration/deceleration ramp) -----------------------
     # Speed slow hardware-verified (Phase 12); position slow still doc-based.

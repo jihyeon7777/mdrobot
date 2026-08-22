@@ -304,6 +304,64 @@ TEST(Device, SingleSetEncoderPprRejectsOutOfRange) {
   EXPECT_TRUE(dev.frames.empty());
 }
 
+// --- encoder position source (USE_EPOSI) ---
+// Enabling first reads ENC_PPR (the ENC_PPR=0 guard), so the 46 write is frames[1].
+
+TEST(Device, SingleGetUseEncoderPosition) {
+  FakeDevice dev({{PID_USE_EPOSI, {1}}});
+  ModbusClient client(dev, 1);
+  SingleMotorDriver drv(client);
+  EXPECT_TRUE(drv.get_use_encoder_position());
+  FakeDevice dev0;
+  ModbusClient client0(dev0, 1);
+  SingleMotorDriver drv0(client0);
+  EXPECT_FALSE(drv0.get_use_encoder_position());
+}
+
+TEST(Device, SingleSetUseEncoderPositionWritesThenVerifies) {
+  // the fake keeps registers static, so seed the value the write is expected to land on
+  FakeDevice dev({{PID_USE_EPOSI, {1}}, {PID_ENC_PPR, {1000}}});
+  ModbusClient client(dev, 1);
+  SingleMotorDriver drv(client);
+  drv.set_use_encoder_position(true, 0.0);
+  ASSERT_GE(dev.frames.size(), 2u);
+  EXPECT_EQ(dev.frames[1], w1(PID_USE_EPOSI, 1));
+}
+
+TEST(Device, SingleSetUseEncoderPositionFalseWritesZero) {
+  FakeDevice dev;  // reads back 0 = the written value; no ENC_PPR guard read
+  ModbusClient client(dev, 1);
+  SingleMotorDriver drv(client);
+  drv.set_use_encoder_position(false, 0.0);
+  ASSERT_FALSE(dev.frames.empty());
+  EXPECT_EQ(dev.frames[0], w1(PID_USE_EPOSI, 0));
+}
+
+TEST(Device, SingleSetUseEncoderPositionThrowsWhenNotApplied) {
+  // read-back stays 0 although 1 was written (e.g. firmware ignoring the register)
+  FakeDevice dev({{PID_ENC_PPR, {1000}}});
+  ModbusClient client(dev, 1);
+  SingleMotorDriver drv(client);
+  EXPECT_THROW(drv.set_use_encoder_position(true, 0.0), ProtocolError);
+}
+
+TEST(Device, SingleSetUseEncoderPositionCanSkipVerification) {
+  FakeDevice dev({{PID_ENC_PPR, {1000}}});
+  ModbusClient client(dev, 1);
+  SingleMotorDriver drv(client);
+  drv.set_use_encoder_position(true, 0.0, false);
+  ASSERT_EQ(dev.frames.size(), 2u);  // guard read + write, no read-back
+  EXPECT_EQ(dev.frames[1], w1(PID_USE_EPOSI, 1));
+}
+
+TEST(Device, SingleSetUseEncoderPositionRequiresEncoderPpr) {
+  FakeDevice dev;  // ENC_PPR reads 0 -> refused before any write
+  ModbusClient client(dev, 1);
+  SingleMotorDriver drv(client);
+  EXPECT_THROW(drv.set_use_encoder_position(true, 0.0), ProtocolError);
+  ASSERT_EQ(dev.frames.size(), 1u);  // only the ENC_PPR guard read went out
+}
+
 // --- DualMotorDriver ---
 
 TEST(Device, DualSetVelocitiesUsesTwoLegacyPids) {

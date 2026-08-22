@@ -19,8 +19,15 @@ constexpr uint16_t PID_INV_SIGN_CMD  = 16;
 constexpr uint16_t PID_USE_LIMIT_SW  = 17;
 constexpr uint16_t PID_HALL_TYPE     = 21;  // pole/hall type (2 = 10 poles); counts/rev = 3 x poles
 constexpr uint16_t PID_INPUT_TYPE    = 25;
+constexpr uint16_t PID_POS_SEN_TYPE  = 26;  // position signal type (0 HALL, 1 EPOSI; RS485 spec V6.55);
+                                            // follows PID_USE_EPOSI automatically in both directions
 constexpr uint16_t PID_USE_LIMIT_SW2 = 29;
 constexpr uint16_t PID_CTRL_STATUS   = 34;
+constexpr uint16_t PID_USE_EPOSI     = 46;  // position source (0 hall, 1 encoder); default 0. RS485 spec
+                                            // V6.55 (absent from the 2021 Modbus PDF). Verified MD400 v8.6:
+                                            // counts/rev becomes 4 x ENC_PPR and the +/- direction flips
+                                            // vs hall mode. EEPROM; immediate effect. Not CMD namespace.
+                                            // See SingleMotorDriver::set_use_encoder_position.
 constexpr uint16_t PID_DI            = 48;
 constexpr uint16_t PID_IN_POSITION_OK = 49;
 constexpr uint16_t PID_UI_COM        = 78;

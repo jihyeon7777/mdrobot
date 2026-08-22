@@ -22,8 +22,18 @@ PID_USE_LIMIT_SW = 17      # R/W CTRL limit switch function (0 cancel, 1 use); d
 PID_HALL_TYPE = 21         # R/W motor pole / hall type (0:4p, 1:8p, 2:10p, 3:12p, 4:2p, 5:6p).
                            #    sets the hall resolution: counts/rev = 3 x poles (10 poles -> 30).
 PID_INPUT_TYPE = 25        # R/W user input type
+PID_POS_SEN_TYPE = 26      # R/W position signal type (0 HALL, 1 EPOSI, 2 POT, 3/4 MENA; RS485 spec
+                           #    V6.55). Follows PID_USE_EPOSI automatically in BOTH directions
+                           #    (hardware-verified) - no need to write it directly.
 PID_USE_LIMIT_SW2 = 29     # R/W motor-2 limit switch function (dual); same meaning as PID 17
 PID_CTRL_STATUS = 34       # R  status bit map
+PID_USE_EPOSI = 46         # R/W position source (0 hall counter, 1 encoder); default 0. From the
+                           #    RS485 spec V6.55 - absent from the 2021 Modbus protocol PDF.
+                           #    hardware-verified 2026-08-22 (MD400 v8.6): reported position AND
+                           #    position control switch to encoder counts (counts/rev = 4 x ENC_PPR)
+                           #    and the physical +/- direction flips vs hall mode. Takes effect
+                           #    immediately; stored in EEPROM. Not the CMD namespace (CMD 46 differs).
+                           #    See SingleMotorDriver.set_use_encoder_position for the safety notes.
 PID_DI = 48                # R  digital input bits; essential for hardware diagnostics
 PID_IN_POSITION_OK = 49    # R  position control done (0/1)
 PID_UI_COM = 78            # R/C serial communication control (0 = CTRL I/O, 1 = serial only)

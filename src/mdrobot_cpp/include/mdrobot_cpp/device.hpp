@@ -18,6 +18,10 @@ namespace mdrobot {
 /// Writing PID_ENC_PPR(156) can reinitialise the controller; wait this long before reading back.
 constexpr double kEncoderSettleS = 2.5;
 
+/// PID_USE_EPOSI(46) applies immediately, but the first read-back can still return the OLD
+/// value; wait this long before each read-back attempt in set_use_encoder_position.
+constexpr double kEposiSettleS = 0.2;
+
 /// Shared base for single/dual: connection, version/voltage/status, enable/disable, alarm reset, slow.
 class DriverBase {
  public:
@@ -87,6 +91,26 @@ class SingleMotorDriver : public DriverBase {
   void set_encoder_ppr(int ppr, double settle = kEncoderSettleS, bool verify = true);
   /// Turn the encoder off (PPR = 0) and run hall closed-loop instead.
   void disable_encoder(double settle = kEncoderSettleS, bool verify = true);
+
+  // --- encoder position source (USE_EPOSI, hardware-verified 2026-08-22, 2x MD400 v8.6) ---
+  /// Whether reported position and position control use the encoder (PID_USE_EPOSI).
+  bool get_use_encoder_position();
+  /// Switch the position source between the hall counter (false, factory default) and an
+  /// attached encoder (true). With the encoder source, position and position-control
+  /// targets are in encoder counts: counts/rev = 4 x ENC_PPR (1000 PPR -> 4000/rev).
+  ///
+  /// WARNING (verified on MD400 v8.6): the physical +/- direction convention FLIPS versus
+  /// hall mode (+ turned the verified motors CW where hall + is CCW) - remap signs in any
+  /// layer that assumes the hall convention. The IN_POSITION_OK window is in counts, so
+  /// arrival can take many seconds or never latch (always time-bound wait_in_position).
+  /// Position is a 32-bit count and overflows ~133x sooner than hall mode. Switch only at
+  /// standstill and call reset_position() afterwards. Takes effect immediately; EEPROM.
+  /// Updates PID_POS_SEN_TYPE(26) automatically in both directions.
+  ///
+  /// Enabling requires a nonzero ENC_PPR (throws ProtocolError otherwise). The first
+  /// read-back can return the old value, so @p verify retries (waiting @p settle before
+  /// each attempt) and throws ProtocolError if the value never sticks.
+  void set_use_encoder_position(bool enabled, double settle = kEposiSettleS, bool verify = true);
 
   // --- slow-start / slow-down (speed slow hardware-verified Phase 12; position slow doc-based) ---
   void set_slow_start(double seconds, double full_scale_s = 15.0);
