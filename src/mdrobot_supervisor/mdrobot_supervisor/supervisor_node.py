@@ -1,0 +1,412 @@
+#!/usr/bin/env python3
+"""The decision layer: operator input in, drive and equipment commands out.
+
+    transmitter --RF--> STM32 board --> rc_bridge_node --> THIS NODE
+                                             ^                 |
+                     equipment  ~/command ---+                 |
+                                                               v
+                                        two motor_driver_node instances (MD, ttyUSB0)
+
+Everything the machine does is decided here. The bridge below only reports and
+relays; the motor driver below only turns rpm into RS485 writes.
+
+Drive
+-----
+Four mecanum wheels on two dual-channel MD controllers. Operator steer/throttle
+become a body twist, the twist becomes four wheel speeds, and those are split
+across the two controllers by the wheel map. The RC has two axes, so vy (strafe)
+is always 0 for now — there is no third axis to drive it until a mode assigns
+one.
+
+Wheel speeds are clamped by scaling all four together, never per wheel: the
+kinematics is linear, so uniform scaling is exactly "the same path, slower",
+while clipping wheels one by one bends a straight line into an arc.
+
+Interface
+---------
+Parameters (see config/supervisor.yaml for the full annotated set):
+  rate (float=50.0)          Hz; decision and publish rate
+  rc_timeout (float=0.3)     s without RC before everything is commanded to stop
+  max_linear_x/max_angular_z what full stick deflection asks for
+  max_motor_rpm (float=600)  the hard cap, applied at the wheel
+  wheel_radius/track/wheelbase/gear_ratio/roller_layout   base geometry
+  wheel_slave_ids/wheel_channels/wheel_signs  where each wheel lives, in
+                             front_left, front_right, rear_left, rear_right order
+  lift_input (str='tristate') how the operator's lift channel reads:
+                             'tristate' (-1/0/+1) or 'pwm' (a pulse width). It
+                             was never observed moving, so 'tristate' is an
+                             assumption; a tristate channel reporting anything
+                             else holds lift at 0 rather than guessing
+  limit_gating (bool=False)  stop lift at the limit switches. OFF by default
+                             because the switch polarity is not yet known — a
+                             gate with the polarity backwards either blocks lift
+                             forever or never fires. Turn it on once measured.
+  limit_active_value (int=1) what a TRIGGERED limit switch reports
+
+Subscriptions:
+  ~/rc (std_msgs/Int32MultiArray)   the bridge's ~/channels, ten operator channels
+
+Publishers:
+  ~/cmd_velocity_1, ~/cmd_velocity_2 (std_msgs/Float64MultiArray)
+      [channel1_rpm, channel2_rpm] for each MD controller, motor-shaft rpm
+  ~/command (std_msgs/Int32MultiArray)
+      [lift, brake, drill, actuator, solenoid] for the bridge to relay
+  ~/mode (std_msgs/String)
+      which of base / mecanum / autonomous the operator's switch selects
+  ~/diagnostics (diagnostic_msgs/DiagnosticArray)
+
+Modes
+-----
+The operator's three-position switch reports -1, 0 or +1. Which position means
+base, mecanum or autonomous is NOT decided yet, and no behaviour is attached to
+it: the node reports the mode and drives identically in all three. mode_names
+maps the three values so the wiring is ready when the behaviour is.
+
+Safety
+------
+Nothing here replaces the board's own failsafe or a physical e-stop. What the
+node does guarantee: with rc_timeout exceeded, drive goes to zero rpm and
+equipment to idle; a brake command zeroes drive in the same tick it is seen;
+out-of-range values never reach the hardware, because the bridge clamps them.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+
+import rclpy
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+from std_msgs.msg import Float64MultiArray, Int32MultiArray, String
+
+from mdrobot_rc_bridge.rc_reader import CHANNEL_NAMES, NUM_CHANNELS
+from mdrobot_supervisor.kinematics import (
+    MecanumGeometry,
+    WHEEL_NAMES,
+    inverse,
+    rad_s_to_motor_rpm,
+    scale_to_limit,
+)
+
+CH = {name: i for i, name in enumerate(CHANNEL_NAMES)}
+IDLE_COMMAND = [0, 0, 0, 0, 0]  # lift, brake, drill, actuator, solenoid
+
+
+class SupervisorNode(Node):
+    def __init__(self) -> None:
+        super().__init__("mdrobot_supervisor")
+
+        self.declare_parameter("rate", 50.0)
+        self.declare_parameter("rc_timeout", 0.3)
+        self.declare_parameter("pwm_min", 1000)
+        self.declare_parameter("pwm_mid", 1500)
+        self.declare_parameter("pwm_max", 2000)
+        self.declare_parameter("deadband", 15)
+        self.declare_parameter("invert_steer", False)
+        self.declare_parameter("invert_throttle", False)
+        self.declare_parameter("max_linear_x", 0.2)
+        self.declare_parameter("max_angular_z", 0.37)
+        self.declare_parameter("max_motor_rpm", 600.0)
+        self.declare_parameter("wheel_radius", 0.0625)
+        self.declare_parameter("track", 0.575)
+        self.declare_parameter("wheelbase", 0.5)
+        self.declare_parameter("gear_ratio", 20.0)
+        self.declare_parameter("roller_layout", "unknown")
+        self.declare_parameter("wheel_slave_ids", [1, 1, 2, 2])
+        self.declare_parameter("wheel_channels", [1, 2, 2, 1])
+        self.declare_parameter("wheel_signs", [-1, 1, -1, 1])
+        self.declare_parameter("lift_speed", 60)
+        self.declare_parameter("lift_input", "tristate")
+        self.declare_parameter("limit_gating", False)
+        self.declare_parameter("limit_active_value", 1)
+        self.declare_parameter("mode_names", ["base", "mecanum", "autonomous"])
+
+        self.rc_timeout = float(self.get_parameter("rc_timeout").value)
+        self.pwm_min = int(self.get_parameter("pwm_min").value)
+        self.pwm_mid = int(self.get_parameter("pwm_mid").value)
+        self.pwm_max = int(self.get_parameter("pwm_max").value)
+        self.deadband = int(self.get_parameter("deadband").value)
+        if not self.pwm_min < self.pwm_mid < self.pwm_max:
+            raise ValueError(
+                f"need pwm_min < pwm_mid < pwm_max, got "
+                f"{self.pwm_min} / {self.pwm_mid} / {self.pwm_max}"
+            )
+        self.invert_steer = bool(self.get_parameter("invert_steer").value)
+        self.invert_throttle = bool(self.get_parameter("invert_throttle").value)
+        self.max_linear_x = float(self.get_parameter("max_linear_x").value)
+        self.max_angular_z = float(self.get_parameter("max_angular_z").value)
+        self.max_motor_rpm = float(self.get_parameter("max_motor_rpm").value)
+        self.gear_ratio = float(self.get_parameter("gear_ratio").value)
+        if self.gear_ratio <= 0:
+            raise ValueError(f"gear_ratio must be positive, got {self.gear_ratio}")
+
+        self.geom = MecanumGeometry(
+            wheel_radius=float(self.get_parameter("wheel_radius").value),
+            track=float(self.get_parameter("track").value),
+            wheelbase=float(self.get_parameter("wheelbase").value),
+            roller_layout=str(self.get_parameter("roller_layout").value),
+        )
+
+        self.wheel_slave_ids = [int(v) for v in self.get_parameter("wheel_slave_ids").value]
+        self.wheel_channels = [int(v) for v in self.get_parameter("wheel_channels").value]
+        self.wheel_signs = [int(v) for v in self.get_parameter("wheel_signs").value]
+        self._validate_wheel_map()
+
+        self.lift_speed = int(self.get_parameter("lift_speed").value)
+        self.lift_input = str(self.get_parameter("lift_input").value).lower()
+        if self.lift_input not in ("tristate", "pwm"):
+            raise ValueError(
+                f"lift_input must be 'tristate' or 'pwm', got {self.lift_input!r}"
+            )
+        self.limit_gating = bool(self.get_parameter("limit_gating").value)
+        self.limit_active_value = int(self.get_parameter("limit_active_value").value)
+        self.mode_names = [str(n) for n in self.get_parameter("mode_names").value]
+        if len(self.mode_names) != 3:
+            raise ValueError(f"mode_names needs 3 entries, got {self.mode_names}")
+
+        self.pub_drive = [
+            self.create_publisher(Float64MultiArray, "~/cmd_velocity_1", 10),
+            self.create_publisher(Float64MultiArray, "~/cmd_velocity_2", 10),
+        ]
+        self.pub_command = self.create_publisher(Int32MultiArray, "~/command", 10)
+        self.pub_mode = self.create_publisher(String, "~/mode", 10)
+        self.pub_diag = self.create_publisher(DiagnosticArray, "~/diagnostics", 1)
+        self.create_subscription(Int32MultiArray, "~/rc", self._on_rc, 10)
+
+        self._lock = threading.Lock()
+        self._rc: list[int] | None = None
+        self._rc_wall = 0.0
+        self._stopped = True  # nothing has been commanded yet
+        self._last_mode = ""
+        self._clamp_k = 1.0
+        self._rejected = 0
+
+        self.create_timer(1.0 / float(self.get_parameter("rate").value), self._on_tick)
+        self.create_timer(0.5, self._on_diag)
+
+        self.get_logger().info(
+            f"mecanum base r={self.geom.wheel_radius} track={self.geom.track} "
+            f"wheelbase={self.geom.wheelbase} layout={self.geom.roller_layout} "
+            f"gear={self.gear_ratio} cap={self.max_motor_rpm} rpm"
+        )
+        if self.geom.layout_is_provisional:
+            self.get_logger().warn(
+                "roller_layout is 'unknown': computed as 'x' so the base drives, but "
+                "the STRAFE DIRECTION is unverified. Only a floor test settles it."
+            )
+        if not self.limit_gating:
+            self.get_logger().warn(
+                "limit_gating is off: limit switches are reported but do NOT stop the "
+                "lift. Measure the switch polarity, set limit_active_value, then enable."
+            )
+
+    def _validate_wheel_map(self) -> None:
+        for name, values in (("wheel_slave_ids", self.wheel_slave_ids),
+                             ("wheel_channels", self.wheel_channels),
+                             ("wheel_signs", self.wheel_signs)):
+            if len(values) != 4:
+                raise ValueError(f"{name} needs 4 entries {WHEEL_NAMES}, got {values}")
+        if set(self.wheel_signs) - {-1, 1}:
+            raise ValueError(f"wheel_signs entries must be -1 or +1, got {self.wheel_signs}")
+        if set(self.wheel_channels) - {1, 2}:
+            raise ValueError(f"wheel_channels entries must be 1 or 2, got {self.wheel_channels}")
+        slots = list(zip(self.wheel_slave_ids, self.wheel_channels))
+        if len(set(slots)) != 4:
+            raise ValueError(
+                f"each wheel needs its own (slave_id, channel); got {slots}"
+            )
+        ids = sorted(set(self.wheel_slave_ids))
+        if len(ids) != 2:
+            raise ValueError(f"expected exactly 2 controllers, got slave ids {ids}")
+        self.controller_ids = ids
+
+    # ── input ───────────────────────────────────────────────────────────────
+    def _on_rc(self, msg: Int32MultiArray) -> None:
+        if len(msg.data) != NUM_CHANNELS:
+            self._rejected += 1
+            self.get_logger().warn(
+                f"ignoring ~/rc with {len(msg.data)} channels, expected {NUM_CHANNELS}",
+                throttle_duration_sec=2.0,
+            )
+            return
+        with self._lock:
+            self._rc = [int(v) for v in msg.data]
+            self._rc_wall = time.monotonic()
+
+    def _axis(self, value: int, invert: bool) -> float:
+        """Pulse width in microseconds -> -1..+1, with a deadband at centre."""
+        if abs(value - self.pwm_mid) <= self.deadband:
+            out = 0.0
+        elif value >= self.pwm_mid:
+            out = (value - self.pwm_mid) / (self.pwm_max - self.pwm_mid)
+        else:
+            out = (value - self.pwm_mid) / (self.pwm_mid - self.pwm_min)
+        out = max(-1.0, min(1.0, out))
+        return -out if invert else out
+
+    def _mode_name(self, raw: int) -> str:
+        # The switch reports -1, 0 or +1; anything else means "no reading".
+        if raw in (-1, 0, 1):
+            return self.mode_names[raw + 1]
+        return "unknown"
+
+    # ── decision ────────────────────────────────────────────────────────────
+    def _wheel_rpm(self, vx: float, vy: float, wz: float) -> tuple[list[float], float]:
+        """Body twist -> motor rpm per wheel, capped by scaling all four together."""
+        omega = inverse(vx, vy, wz, self.geom)
+        rpm = [rad_s_to_motor_rpm(w, self.gear_ratio) for w in omega]
+        rpm, k = scale_to_limit(rpm, self.max_motor_rpm)
+        return [r * s for r, s in zip(rpm, self.wheel_signs)], k
+
+    def _split_by_controller(self, wheel_rpm: list[float]) -> list[list[float]]:
+        """Lay the four wheel speeds out as [channel1, channel2] per controller."""
+        out = [[0.0, 0.0] for _ in self.controller_ids]
+        for i, rpm in enumerate(wheel_rpm):
+            controller = self.controller_ids.index(self.wheel_slave_ids[i])
+            out[controller][self.wheel_channels[i] - 1] = rpm
+        return out
+
+    def _on_tick(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            rc = self._rc
+            age = now - self._rc_wall if self._rc_wall else None
+
+        if rc is None or age is None or age > self.rc_timeout:
+            if not self._stopped:
+                self._stopped = True
+                self.get_logger().warn(
+                    "no ~/rc within rc_timeout; commanding stop and idle equipment"
+                )
+            self._publish(self._split_by_controller([0.0] * 4), IDLE_COMMAND, "unknown")
+            self._clamp_k = 1.0
+            return
+
+        if self._stopped:
+            self._stopped = False
+            self.get_logger().info("~/rc live; resuming")
+
+        brake = 1 if rc[CH["brake"]] else 0
+        # Brake wins over the sticks in the same tick it is seen.
+        if brake:
+            vx = wz = 0.0
+        else:
+            vx = self._axis(rc[CH["throttle"]], self.invert_throttle) * self.max_linear_x
+            # +wz is counter-clockwise, so a right-hand stick has to negate.
+            wz = -self._axis(rc[CH["steer"]], self.invert_steer) * self.max_angular_z
+        vy = 0.0  # no third axis on the transmitter yet
+
+        wheel_rpm, k = self._wheel_rpm(vx, vy, wz)
+        self._clamp_k = k
+
+        lift = self._gated_lift(rc)
+        command = [
+            lift,
+            brake,
+            1 if rc[CH["drill"]] else 0,
+            max(-1, min(1, rc[CH["actuator"]])),
+            1 if rc[CH["solenoid"]] else 0,
+        ]
+        self._publish(self._split_by_controller(wheel_rpm), command,
+                      self._mode_name(rc[CH["mode"]]))
+
+    def _gated_lift(self, rc: list[int]) -> int:
+        """Operator lift request, stopped at whichever limit switch is closed."""
+        raw = rc[CH["lift"]]
+        if self.lift_input == "pwm":
+            fraction = self._axis(raw, False)
+        elif -1 <= raw <= 1:
+            fraction = float(raw)
+        else:
+            # Configured as a -1/0/+1 switch but reporting something else — most
+            # likely it is really a pulse width. Refuse to move rather than
+            # scaling a 1500 into full-speed lift.
+            self.get_logger().error(
+                f"lift channel reported {raw}, outside -1..1 with "
+                f"lift_input='tristate'. Holding lift at 0 — set lift_input='pwm' "
+                f"if the channel carries a pulse width.",
+                throttle_duration_sec=5.0,
+            )
+            return 0
+        lift = int(round(max(-1.0, min(1.0, fraction)) * self.lift_speed))
+        if not self.limit_gating:
+            return lift
+        at_top = rc[CH["limit_up"]] == self.limit_active_value
+        at_bottom = rc[CH["limit_down"]] == self.limit_active_value
+        if lift > 0 and at_top:
+            return 0
+        if lift < 0 and at_bottom:
+            return 0
+        return lift
+
+    # ── output ──────────────────────────────────────────────────────────────
+    def _publish(self, per_controller: list[list[float]],
+                 command: list[int], mode: str) -> None:
+        for pub, values in zip(self.pub_drive, per_controller):
+            msg = Float64MultiArray()
+            msg.data = [float(v) for v in values]
+            pub.publish(msg)
+
+        cmd = Int32MultiArray()
+        cmd.data = [int(v) for v in command]
+        self.pub_command.publish(cmd)
+
+        self.pub_mode.publish(String(data=mode))
+        if mode != self._last_mode:
+            self.get_logger().info(f"mode -> {mode}")
+            self._last_mode = mode
+
+    def _on_diag(self) -> None:
+        with self._lock:
+            rc = self._rc
+            age = time.monotonic() - self._rc_wall if self._rc_wall else None
+
+        status = DiagnosticStatus()
+        status.name = "mdrobot_supervisor: decision"
+        status.hardware_id = "mecanum"
+        if age is None:
+            status.level = DiagnosticStatus.ERROR
+            status.message = "no ~/rc received yet"
+        elif age > self.rc_timeout:
+            status.level = DiagnosticStatus.ERROR
+            status.message = f"~/rc stale for {age:.2f} s; stopped"
+        elif self._clamp_k < 1.0:
+            status.level = DiagnosticStatus.WARN
+            status.message = f"wheel speeds scaled to {self._clamp_k:.2f} of request"
+        else:
+            status.level = DiagnosticStatus.OK
+            status.message = "ok"
+        status.values = [
+            KeyValue(key="mode", value=self._last_mode or "unknown"),
+            KeyValue(key="clamp_k", value=f"{self._clamp_k:.3f}"),
+            KeyValue(key="rc_rejected", value=str(self._rejected)),
+            KeyValue(key="limit_gating", value=str(self.limit_gating)),
+            KeyValue(key="roller_layout", value=self.geom.roller_layout),
+        ]
+        if rc is not None:
+            status.values += [KeyValue(key=n, value=str(v))
+                              for n, v in zip(CHANNEL_NAMES, rc)]
+
+        msg = DiagnosticArray()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.status = [status]
+        self.pub_diag.publish(msg)
+
+
+def main() -> None:
+    rclpy.init()
+    node = SupervisorNode()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

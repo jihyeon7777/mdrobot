@@ -1,0 +1,69 @@
+# mdrobot_supervisor — the decision layer.
+#
+#   ros2 launch mdrobot_supervisor supervisor.launch.py
+#   ros2 launch mdrobot_supervisor supervisor.launch.py config:=/path/to/my.yaml
+#
+# "/**" applies these parameters to the node regardless of name/namespace.
+/**:
+  ros__parameters:
+    rate: 50.0              # Hz; decision and publish rate
+    rc_timeout: 0.3         # s without ~/rc before drive stops and equipment idles
+
+    # ── operator sticks ────────────────────────────────────────────────────
+    # steer and throttle are the two channels confirmed to carry pulse widths.
+    pwm_min: 1000
+    pwm_mid: 1500
+    pwm_max: 2000
+    deadband: 15            # us around pwm_mid that reads as exactly 0.0
+    invert_steer: false
+    invert_throttle: false
+
+    # What full stick deflection asks for. These are operator targets, not what
+    # the hardware can do — max_motor_rpm is the hard cap.
+    # NOTE: 0.2 m/s asks for slightly MORE than max_motor_rpm allows —
+    #   0.2 / 0.0625 = 3.2 rad/s at the wheel -> 30.6 wheel rpm -> x20 = 611 motor rpm
+    # against a 600 cap, so full throttle is always scaled to 0.98 and diagnostics
+    # sit at WARN. Both numbers come from mecanum.yaml as-is. Drop this to 0.196
+    # (or raise the cap) if you want full stick to mean exactly the cap.
+    max_linear_x: 0.2       # m/s
+    max_angular_z: 0.37     # rad/s
+
+    # ── mecanum base ───────────────────────────────────────────────────────
+    # Geometry from mecanum.yaml. Four wheels on two dual-channel controllers.
+    wheel_radius: 0.0625    # m
+    track: 0.575            # m; LEFT-RIGHT wheel centre distance
+    wheelbase: 0.5          # m; FRONT-REAR wheel centre distance
+    gear_ratio: 20.0        # MOTOR revolutions per WHEEL revolution
+    max_motor_rpm: 600.0    # THE hard cap, applied by scaling all four together
+
+    # Flips the vy column ONLY: a wrong value makes strafe go the wrong way and
+    # changes nothing else. It cannot be decided by eye — the roller you see from
+    # above projects to the mirror of the ground-contact roller that does the
+    # work. Only a floor test settles it.  x | o | unknown
+    roller_layout: unknown
+
+    # Where each wheel lives, in front_left, front_right, rear_left, rear_right
+    # order. sign = +1 when a POSITIVE rpm drives the robot FORWARD.
+    wheel_slave_ids: [1, 1, 2, 2]
+    wheel_channels: [1, 2, 2, 1]
+    wheel_signs:    [-1, 1, -1, 1]
+
+    # ── equipment ──────────────────────────────────────────────────────────
+    lift_speed: 60          # what a full lift request commands (the board takes -60..60)
+    # How the operator's lift channel reads: 'tristate' (-1/0/+1) or 'pwm'.
+    # It was never observed moving, so this is an assumption — a tristate channel
+    # reporting anything else holds lift at 0 rather than guessing.
+    lift_input: tristate
+
+    # Limit switches. OFF because the switch polarity is not known yet: a gate
+    # with the polarity backwards either blocks lift forever or never fires.
+    # Measure which value a TRIGGERED switch reports, set limit_active_value,
+    # then turn this on.
+    limit_gating: false
+    limit_active_value: 1
+
+    # ── modes ──────────────────────────────────────────────────────────────
+    # The switch reports -1, 0, +1 and these name them in that order. Which
+    # position should mean what is not decided yet, and no behaviour is attached:
+    # the node reports the mode and drives identically in all three.
+    mode_names: ['base', 'mecanum', 'autonomous']
