@@ -27,14 +27,17 @@ Parameters:
   joint_names (str[])           defaults to the four wheel names
   max_rpm (float=600)           hard cap applied per wheel before writing
   command_timeout (float=0.5)   stop the motors if no command arrives. 0 disables
-  publish_rate (float=20.0)     Hz, joint_states
+  write_rate (float=10.0)       Hz the latched command is pushed onto the bus
+  publish_rate (float=5.0)      Hz, joint_states
   diag_rate (float=2.0)         Hz, diagnostics
   auto_enable (bool=True)       enable both controllers on startup
 
 Subscriptions:
   ~/cmd_wheel_rpm (std_msgs/Float64MultiArray)
       [front_left, front_right, rear_left, rear_right], motor-shaft rpm, already
-      signed for mounting direction by the layer above.
+      signed for mounting direction by the layer above. Latched, not written
+      straight through: the bus is slower than the command stream, so the queue
+      is depth 1 and a timer pushes whatever is latest.
 
 Publishers:
   ~/joint_states (sensor_msgs/JointState)   four wheels, position and velocity
@@ -43,12 +46,14 @@ Publishers:
 Services (std_srvs/Trigger):
   ~/enable ~/disable ~/stop ~/brake ~/torque_off ~/reset_position
 
-Bus budget: one 19200-baud line carries both controllers, and a transaction
-costs roughly 12 ms. Every command message writes to both, and every
-joint_states tick reads from both, so the combined rate of ~/cmd_wheel_rpm and
-publish_rate is what has to fit inside a second. 10 Hz each is 48%, the figure
-mecanum.yaml records as working; 50 Hz of commands alone would want 120% and
-the transactions would simply queue.
+Bus budget, measured on this hardware rather than guessed: a monitor read costs
+21 ms and a two-register velocity write 18 ms. At write_rate 10 Hz and
+publish_rate 5 Hz that is 2*18*10 + 2*21*5 = 570 ms per second, about 57%.
+
+Both halves of that mattered. Writing the two velocity registers separately, as
+set_velocities does, costs 30 ms instead of 18; combined with joint_states at
+20 Hz the total came to 102% of the bus, and the backlog grew until the wheels
+were answering a stick position several seconds old.
 
 Safety: with command_timeout > 0 the wheels stop when commands stop arriving.
 Bus access is serialised on a single-threaded executor, so reads and writes
@@ -67,11 +72,14 @@ import serial
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 from std_srvs.srv import Trigger
 
 from mdrobot import DualMotorDriver
+from mdrobot import registers as reg
+from mdrobot.codec import word_from_int16
 from mdrobot.exceptions import MdrobotError
 from mdrobot.protocol import ModbusClient
 from mdrobot.transport import SerialTransport, resolve_port
@@ -100,7 +108,8 @@ class MecanumDriverNode(Node):
         self.declare_parameter("joint_names", list(WHEEL_NAMES))
         self.declare_parameter("max_rpm", 600.0)
         self.declare_parameter("command_timeout", 0.5)
-        self.declare_parameter("publish_rate", 20.0)
+        self.declare_parameter("write_rate", 10.0)
+        self.declare_parameter("publish_rate", 5.0)
         self.declare_parameter("diag_rate", 2.0)
         self.declare_parameter("auto_enable", True)
 
@@ -143,8 +152,11 @@ class MecanumDriverNode(Node):
         self._errors = 0
         self._last_positions: list[float] | None = None
 
+        # Depth 1: the bus is slower than the command stream, and a queue of
+        # stale rpm values is worse than none — only the newest matters.
         self.create_subscription(
-            Float64MultiArray, "~/cmd_wheel_rpm", self._on_command, 10)
+            Float64MultiArray, "~/cmd_wheel_rpm", self._on_command,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE))
         self.pub_joints = self.create_publisher(JointState, "~/joint_states", 10)
         self.pub_diag = self.create_publisher(DiagnosticArray, "~/diagnostics", 1)
 
@@ -161,6 +173,8 @@ class MecanumDriverNode(Node):
         if bool(self.get_parameter("auto_enable").value):
             self._for_each(lambda d: d.enable(), "enable")
 
+        self.create_timer(1.0 / float(self.get_parameter("write_rate").value),
+                          self._on_write_tick)
         self.create_timer(1.0 / float(self.get_parameter("publish_rate").value),
                           self._publish_joints)
         self.create_timer(1.0 / float(self.get_parameter("diag_rate").value),
@@ -223,29 +237,48 @@ class MecanumDriverNode(Node):
                 throttle_duration_sec=2.0,
             )
             return
+        # Latch only. Writing here would put a 36 ms bus transaction inside a
+        # callback fed faster than the bus can drain, and the backlog would grow
+        # without bound — the operator sees the wheels answering a stick
+        # position from seconds ago. The timer writes whatever is latched.
         self._command = [
             max(-self.max_rpm, min(self.max_rpm, float(v))) for v in msg.data
         ]
         self._command_wall = time.monotonic()
         self._stopped = False
-        self._write_command(self._command)
 
     def _write_command(self, wheel_rpm: list[float]) -> None:
-        """One write per controller, both channels at once."""
+        """One bus transaction per controller, carrying both channels.
+
+        set_velocities() writes PID_VEL_CMD and PID_VEL_CMD2 separately, two
+        transactions at ~15 ms each. The registers are consecutive, so a single
+        write-multiple covers both in ~18 ms — measured on this bus, and the
+        difference is what puts the whole system inside its budget rather than
+        just over it.
+        """
         for slave, driver in self.drivers.items():
             pair = [0, 0]
             for i in range(4):
                 if self.wheel_slave_ids[i] == slave:
                     pair[self.wheel_channels[i] - 1] = int(round(wheel_rpm[i]))
             try:
-                driver.set_velocities(pair[0], pair[1])
+                driver.client.write_registers(
+                    reg.PID_VEL_CMD,
+                    [word_from_int16(pair[0]), word_from_int16(pair[1])],
+                )
             except BUS_ERRORS as exc:
                 self._errors += 1
                 self.get_logger().error(
-                    f"set_velocities failed on controller {slave}: "
+                    f"velocity write failed on controller {slave}: "
                     f"{type(exc).__name__}: {exc}",
                     throttle_duration_sec=1.0,
                 )
+
+    def _on_write_tick(self) -> None:
+        """Push the latched command onto the bus at a rate the bus can carry."""
+        if self._stopped:
+            return
+        self._write_command(self._command)
 
     def _check_watchdog(self) -> None:
         if self._stopped or not self._command_wall:
