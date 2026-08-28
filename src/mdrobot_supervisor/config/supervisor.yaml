@@ -25,8 +25,9 @@
     # against a 600 cap, so full throttle is always scaled to 0.98 and diagnostics
     # sit at WARN. Both numbers come from mecanum.yaml as-is. Drop this to 0.196
     # (or raise the cap) if you want full stick to mean exactly the cap.
-    max_linear_x: 0.2       # m/s
-    max_angular_z: 0.37     # rad/s
+    max_linear_x: 0.2       # m/s;   forward/back, both manual modes
+    max_linear_y: 0.2       # m/s;   strafe, mecanum mode only
+    max_angular_z: 0.37     # rad/s; yaw, base mode only
 
     # ── mecanum base ───────────────────────────────────────────────────────
     # Geometry from mecanum.yaml. Four wheels on two dual-channel controllers.
@@ -63,7 +64,8 @@
     limit_active_value: 1
 
     # ── modes ──────────────────────────────────────────────────────────────
-    # The switch reports -1, 0, +1 and these name them in that order. Which
-    # position should mean what is not decided yet, and no behaviour is attached:
-    # the node reports the mode and drives identically in all three.
+    # The switch reports -1, 0, +1 and these name them in that order.
+    #   -1 base        throttle = forward/back, steer = YAW
+    #    0 mecanum     throttle = forward/back, steer = STRAFE (no heading change)
+    #    1 autonomous  NOT IMPLEMENTED — the node holds still in this mode
     mode_names: ['base', 'mecanum', 'autonomous']

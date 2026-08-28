@@ -14,9 +14,10 @@ Drive
 -----
 Four mecanum wheels on two dual-channel MD controllers. Operator steer/throttle
 become a body twist, the twist becomes four wheel speeds, and those are split
-across the two controllers by the wheel map. The RC has two axes, so vy (strafe)
-is always 0 for now — there is no third axis to drive it until a mode assigns
-one.
+across the two controllers by the wheel map.
+
+Throttle always means forward/back. What the steer stick means is the whole
+difference between the two manual modes — see Modes below.
 
 Wheel speeds are clamped by scaling all four together, never per wheel: the
 kinematics is linear, so uniform scaling is exactly "the same path, slower",
@@ -27,7 +28,9 @@ Interface
 Parameters (see config/supervisor.yaml for the full annotated set):
   rate (float=50.0)          Hz; decision and publish rate
   rc_timeout (float=0.3)     s without RC before everything is commanded to stop
-  max_linear_x/max_angular_z what full stick deflection asks for
+  max_linear_x/max_linear_y/max_angular_z  what full stick deflection asks for.
+                             max_linear_y is used by mecanum mode, max_angular_z
+                             by base mode
   max_motor_rpm (float=600)  the hard cap, applied at the wheel
   wheel_radius/track/wheelbase/gear_ratio/roller_layout   base geometry
   wheel_slave_ids/wheel_channels/wheel_signs  where each wheel lives, in
@@ -57,10 +60,20 @@ Publishers:
 
 Modes
 -----
-The operator's three-position switch reports -1, 0 or +1. Which position means
-base, mecanum or autonomous is NOT decided yet, and no behaviour is attached to
-it: the node reports the mode and drives identically in all three. mode_names
-maps the three values so the wiring is ready when the behaviour is.
+The operator's three-position switch reports -1, 0 or +1:
+
+  -1  base        manual driving the conventional way: throttle is forward/back,
+                  steer YAWS the machine left and right
+   0  mecanum     throttle is forward/back as before, but steer STRAFES — pull
+                  left and the machine slides left without changing heading
+   1  autonomous  NOT IMPLEMENTED. The node holds still in this mode rather than
+                  driving the sticks, because a mode labelled autonomous must not
+                  quietly behave manually
+
+The intended autonomous sequence, for context: drive to the front of the car by
+hand, let the camera read the number plate, then hand over — the machine centres
+itself on the plate, drives under the vehicle, and drills once it reaches the
+underbody. None of that exists yet.
 
 Safety
 ------
@@ -107,6 +120,7 @@ class SupervisorNode(Node):
         self.declare_parameter("invert_steer", False)
         self.declare_parameter("invert_throttle", False)
         self.declare_parameter("max_linear_x", 0.2)
+        self.declare_parameter("max_linear_y", 0.2)
         self.declare_parameter("max_angular_z", 0.37)
         self.declare_parameter("max_motor_rpm", 600.0)
         self.declare_parameter("wheel_radius", 0.0625)
@@ -136,6 +150,7 @@ class SupervisorNode(Node):
         self.invert_steer = bool(self.get_parameter("invert_steer").value)
         self.invert_throttle = bool(self.get_parameter("invert_throttle").value)
         self.max_linear_x = float(self.get_parameter("max_linear_x").value)
+        self.max_linear_y = float(self.get_parameter("max_linear_y").value)
         self.max_angular_z = float(self.get_parameter("max_angular_z").value)
         self.max_motor_rpm = float(self.get_parameter("max_motor_rpm").value)
         self.gear_ratio = float(self.get_parameter("gear_ratio").value)
@@ -165,6 +180,8 @@ class SupervisorNode(Node):
         self.mode_names = [str(n) for n in self.get_parameter("mode_names").value]
         if len(self.mode_names) != 3:
             raise ValueError(f"mode_names needs 3 entries, got {self.mode_names}")
+        # The switch reports -1, 0, +1 and mode_names lists them in that order.
+        self.mode_base, self.mode_mecanum, self.mode_autonomous = self.mode_names
 
         self.pub_drive = [
             self.create_publisher(Float64MultiArray, "~/cmd_velocity_1", 10),
@@ -182,6 +199,7 @@ class SupervisorNode(Node):
         self._last_mode = ""
         self._clamp_k = 1.0
         self._rejected = 0
+        self._autonomous_warned = False
 
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._on_tick)
         self.create_timer(0.5, self._on_diag)
@@ -253,6 +271,39 @@ class SupervisorNode(Node):
         return "unknown"
 
     # ── decision ────────────────────────────────────────────────────────────
+    def _twist(self, rc: list[int], mode: str, brake: int) -> tuple[float, float, float]:
+        """Operator sticks -> body twist, according to the selected mode.
+
+        Throttle always means forward/back. What the steer stick means is the
+        whole difference between the two manual modes: in base it yaws the
+        machine, in mecanum it slides it sideways without changing heading.
+        """
+        # Brake wins over the sticks in the same tick it is seen.
+        if brake:
+            return 0.0, 0.0, 0.0
+
+        if mode == self.mode_autonomous:
+            # No autonomous behaviour exists yet. Driving the sticks here would
+            # make a mode labelled "autonomous" behave manually, so hold still
+            # and say so instead of guessing.
+            if not self._autonomous_warned:
+                self._autonomous_warned = True
+                self.get_logger().warn(
+                    "autonomous mode selected but not implemented; holding still. "
+                    "Switch to base or mecanum to drive."
+                )
+            return 0.0, 0.0, 0.0
+        self._autonomous_warned = False
+
+        vx = self._axis(rc[CH["throttle"]], self.invert_throttle) * self.max_linear_x
+        steer = self._axis(rc[CH["steer"]], self.invert_steer)
+        if mode == self.mode_mecanum:
+            # +y is LEFT, so pulling the stick right (positive) strafes right.
+            return vx, -steer * self.max_linear_y, 0.0
+        # Base mode, and anything unrecognised: yaw. +wz is counter-clockwise,
+        # so a stick pulled right has to negate.
+        return vx, 0.0, -steer * self.max_angular_z
+
     def _wheel_rpm(self, vx: float, vy: float, wz: float) -> tuple[list[float], float]:
         """Body twist -> motor rpm per wheel, capped by scaling all four together."""
         omega = inverse(vx, vy, wz, self.geom)
@@ -288,16 +339,9 @@ class SupervisorNode(Node):
             self._stopped = False
             self.get_logger().info("~/rc live; resuming")
 
+        mode = self._mode_name(rc[CH["mode"]])
         brake = 1 if rc[CH["brake"]] else 0
-        # Brake wins over the sticks in the same tick it is seen.
-        if brake:
-            vx = wz = 0.0
-        else:
-            vx = self._axis(rc[CH["throttle"]], self.invert_throttle) * self.max_linear_x
-            # +wz is counter-clockwise, so a right-hand stick has to negate.
-            wz = -self._axis(rc[CH["steer"]], self.invert_steer) * self.max_angular_z
-        vy = 0.0  # no third axis on the transmitter yet
-
+        vx, vy, wz = self._twist(rc, mode, brake)
         wheel_rpm, k = self._wheel_rpm(vx, vy, wz)
         self._clamp_k = k
 
@@ -309,8 +353,7 @@ class SupervisorNode(Node):
             max(-1, min(1, rc[CH["actuator"]])),
             1 if rc[CH["solenoid"]] else 0,
         ]
-        self._publish(self._split_by_controller(wheel_rpm), command,
-                      self._mode_name(rc[CH["mode"]]))
+        self._publish(self._split_by_controller(wheel_rpm), command, mode)
 
     def _gated_lift(self, rc: list[int]) -> int:
         """Operator lift request, stopped at whichever limit switch is closed."""

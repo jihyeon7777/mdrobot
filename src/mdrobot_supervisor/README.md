@@ -40,9 +40,34 @@ while clipping wheels one at a time bends a commanded straight line into an arc.
 
 ## Modes
 
-The switch reports -1, 0 or +1 and `mode_names` names them in that order. **No
-behaviour is attached yet** — which position should mean what is undecided, so
-the node reports the mode and drives identically in all three.
+The switch reports -1, 0 or +1. Throttle always means forward/back; what the
+steer stick means is the whole difference between the two manual modes.
+
+| | mode | steer stick |
+|---|---|---|
+| -1 | base | **yaws** the machine left/right |
+| 0 | mecanum | **strafes** — slides sideways, heading unchanged |
+| 1 | autonomous | **not implemented** — the node holds still |
+
+Autonomous holds still rather than driving the sticks: a mode labelled
+autonomous must not quietly behave manually.
+
+### The intended autonomous sequence
+
+For context, not yet built. The machine puts out electric-vehicle fires by
+getting under the car, drilling through the underbody and spraying water in.
+
+1. Drive to the front of the car by hand.
+2. The camera reads the number plate; an LED signals the lock.
+3. Hand over to autonomous, which moves mecanum-style.
+4. Centre on the plate, then drive under the vehicle.
+5. The plate goes out of view — from there the approach is blind.
+6. On reaching the underbody centre, drill.
+
+`mdrobot_plate_ocr` already publishes what step 4 needs: `~/plate_offset` is a
+`geometry_msgs/Point` with `x`/`y` normalised to [-1, 1] (x positive = plate
+right of centre) and `z` the plate width as a fraction of the frame, a crude
+range proxy.
 
 ## Safety
 
