@@ -46,10 +46,14 @@ Parameters (see config/supervisor.yaml for the full annotated set):
                              'count' (with counts_per_rev). Autonomous refuses to
                              run while this is 'unset', because counts taken for
                              radians would end the blind entry in a single tick
-  limit_gating (bool=False)  stop lift at the limit switches. OFF by default
-                             because the switch polarity is not yet known — a
-                             gate with the polarity backwards either blocks lift
-                             forever or never fires. Turn it on once measured.
+  limit_gating (bool=False)  stop the lift at the limit switches. OFF because
+                             the switches are not fitted yet; with it off nothing
+                             knows where the travel ends and the carriage drives
+                             into its hard stop. Turn it on once they are wired.
+  limit_active_value (int=1) what a TRIGGERED limit switch reports. Both
+                             switches reading it at once is impossible, so that
+                             is treated as a wiring or polarity fault and the
+                             lift is held at 0.
   limit_active_value (int=1) what a TRIGGERED limit switch reports
 
 Subscriptions:
@@ -327,6 +331,8 @@ class SupervisorNode(Node):
         self._auto_actuator = 0
         self._auto_solenoid = 0
         self._sticks_bad = False
+        self._at_top = False
+        self._at_bottom = False
         self._armed = not self.require_neutral_start
 
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._on_tick)
@@ -722,10 +728,31 @@ class SupervisorNode(Node):
             return lift
         at_top = rc[CH["limit_up"]] == self.limit_active_value
         at_bottom = rc[CH["limit_down"]] == self.limit_active_value
+        if at_top and at_bottom:
+            # The carriage cannot be at both ends. Either the polarity is
+            # inverted (both read "triggered" at rest) or a switch has failed.
+            # Either way the gate is meaningless, so stop rather than drive into
+            # a hard stop on the strength of a reading we do not trust.
+            self.get_logger().error(
+                f"both limit switches read {self.limit_active_value} at once — "
+                f"the carriage cannot be at both ends. Holding lift at 0. Check "
+                f"limit_active_value (currently {self.limit_active_value}) and "
+                f"the switch wiring.",
+                throttle_duration_sec=5.0,
+            )
+            return 0
         if lift > 0 and at_top:
+            if not self._at_top:
+                self.get_logger().info("upper limit reached; lift stopped")
+            self._at_top = True
             return 0
+        self._at_top = False
         if lift < 0 and at_bottom:
+            if not self._at_bottom:
+                self.get_logger().info("lower limit reached; lift stopped")
+            self._at_bottom = True
             return 0
+        self._at_bottom = False
         return lift
 
     # ── output ──────────────────────────────────────────────────────────────

@@ -71,10 +71,16 @@
     # reporting 60). 'tristate' (-1/0/+1) and 'pwm' are the other options.
     lift_input: speed
 
-    # Limit switches. OFF because the switch polarity is not known yet: a gate
-    # with the polarity backwards either blocks lift forever or never fires.
-    # Measure which value a TRIGGERED switch reports, set limit_active_value,
-    # then turn this on.
+    # Limit switches stop the lift at each end. OFF because they are NOT FITTED
+    # yet — with nothing to stop it the carriage runs into its hard stop and
+    # stalls there, which is what the controller cutting out and the load
+    # dropping looks like. Turn this on the day the switches are wired.
+    #
+    # limit_active_value is what a TRIGGERED switch reports. Both channels read 0
+    # unwired, so 1 is the likely value; if the lift then refuses to move at all,
+    # the polarity is inverted and this should be 0. Both switches reading
+    # triggered at once is impossible, so that is caught as a fault and the lift
+    # is held at 0.
     limit_gating: false
     limit_active_value: 1
 
