@@ -48,6 +48,10 @@ Parameters (see config/supervisor.yaml for the full annotated set):
 
 Subscriptions:
   ~/rc (std_msgs/Int32MultiArray)   the bridge's ~/channels, ten operator channels
+  ~/plate_offset (geometry_msgs/Point)  plate position from mdrobot_plate_ocr;
+                                    x normalised [-1, 1], positive = right of centre
+  ~/joint_states_1, ~/joint_states_2 (sensor_msgs/JointState)  wheel positions,
+                                    for the blind entry distance
 
 Publishers:
   ~/cmd_velocity_1, ~/cmd_velocity_2 (std_msgs/Float64MultiArray)
@@ -56,6 +60,8 @@ Publishers:
       [lift, brake, drill, actuator, solenoid] for the bridge to relay
   ~/mode (std_msgs/String)
       which of base / mecanum / autonomous the operator's switch selects
+  ~/auto_phase (std_msgs/String)
+      the sequence's current phase, empty when not in autonomous
   ~/diagnostics (diagnostic_msgs/DiagnosticArray)
 
 Modes
@@ -66,14 +72,19 @@ The operator's three-position switch reports -1, 0 or +1:
                   steer YAWS the machine left and right
    0  mecanum     throttle is forward/back as before, but steer STRAFES — pull
                   left and the machine slides left without changing heading
-   1  autonomous  NOT IMPLEMENTED. The node holds still in this mode rather than
-                  driving the sticks, because a mode labelled autonomous must not
-                  quietly behave manually
+   1  autonomous  runs the approach sequence in autonomous.py: wait for a plate,
+                  creep forward while strafing onto it, keep going blind once it
+                  drops out of view, then stop and DRILL
 
-The intended autonomous sequence, for context: drive to the front of the car by
-hand, let the camera read the number plate, then hand over — the machine centres
-itself on the plate, drives under the vehicle, and drills once it reaches the
-underbody. None of that exists yet.
+Autonomous drives the machine under a car and runs a drill with no further
+operator input. Selecting the mode is the arming action. It aborts on brake, on
+losing the RC link, and if wheel odometry is missing — without encoders there is
+no way to know how far under the car it has gone. An abort is terminal: the
+operator has to leave autonomous and come back, which is the deliberate act that
+should be needed to re-arm a drill.
+
+Subscriptions it needs: ~/plate_offset from mdrobot_plate_ocr, and
+~/joint_states_1 / ~/joint_states_2 from the two motor drivers.
 
 Safety
 ------
@@ -85,16 +96,25 @@ out-of-range values never reach the hardware, because the bridge clamps them.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from geometry_msgs.msg import Point
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray, Int32MultiArray, String
 
 from mdrobot_rc_bridge.rc_reader import CHANNEL_NAMES, NUM_CHANNELS
+from mdrobot_supervisor.autonomous import (
+    AutonomousConfig,
+    AutonomousSequence,
+    Observation,
+    TERMINAL,
+)
 from mdrobot_supervisor.kinematics import (
     MecanumGeometry,
     WHEEL_NAMES,
@@ -136,6 +156,18 @@ class SupervisorNode(Node):
         self.declare_parameter("limit_gating", False)
         self.declare_parameter("limit_active_value", 1)
         self.declare_parameter("mode_names", ["base", "mecanum", "autonomous"])
+        # Wheel odometry. 0.0 means ~/joint_states already carries radians, which
+        # is what the driver publishes once its own counts_per_rev is set.
+        self.declare_parameter("counts_per_rev", 0.0)
+        self.declare_parameter("auto_plate_timeout", 0.5)
+        self.declare_parameter("auto_align_gain", 0.4)
+        self.declare_parameter("auto_align_tolerance", 0.08)
+        self.declare_parameter("auto_approach_speed", 0.08)
+        self.declare_parameter("auto_entry_distance", 1.2)
+        self.declare_parameter("auto_entry_speed", 0.08)
+        self.declare_parameter("auto_drill_seconds", 5.0)
+        self.declare_parameter("auto_max_align_seconds", 60.0)
+        self.declare_parameter("auto_max_entry_seconds", 60.0)
 
         self.rc_timeout = float(self.get_parameter("rc_timeout").value)
         self.pwm_min = int(self.get_parameter("pwm_min").value)
@@ -183,6 +215,22 @@ class SupervisorNode(Node):
         # The switch reports -1, 0, +1 and mode_names lists them in that order.
         self.mode_base, self.mode_mecanum, self.mode_autonomous = self.mode_names
 
+        self.counts_per_rev = float(self.get_parameter("counts_per_rev").value)
+        if self.counts_per_rev < 0:
+            raise ValueError(f"counts_per_rev cannot be negative, got {self.counts_per_rev}")
+        self.auto_config = AutonomousConfig(
+            plate_timeout=float(self.get_parameter("auto_plate_timeout").value),
+            align_gain=float(self.get_parameter("auto_align_gain").value),
+            align_tolerance=float(self.get_parameter("auto_align_tolerance").value),
+            approach_speed=float(self.get_parameter("auto_approach_speed").value),
+            entry_distance=float(self.get_parameter("auto_entry_distance").value),
+            entry_speed=float(self.get_parameter("auto_entry_speed").value),
+            drill_seconds=float(self.get_parameter("auto_drill_seconds").value),
+            max_align_seconds=float(self.get_parameter("auto_max_align_seconds").value),
+            max_entry_seconds=float(self.get_parameter("auto_max_entry_seconds").value),
+        )
+        self.sequence = AutonomousSequence(self.auto_config)
+
         self.pub_drive = [
             self.create_publisher(Float64MultiArray, "~/cmd_velocity_1", 10),
             self.create_publisher(Float64MultiArray, "~/cmd_velocity_2", 10),
@@ -190,7 +238,13 @@ class SupervisorNode(Node):
         self.pub_command = self.create_publisher(Int32MultiArray, "~/command", 10)
         self.pub_mode = self.create_publisher(String, "~/mode", 10)
         self.pub_diag = self.create_publisher(DiagnosticArray, "~/diagnostics", 1)
+        self.pub_phase = self.create_publisher(String, "~/auto_phase", 10)
         self.create_subscription(Int32MultiArray, "~/rc", self._on_rc, 10)
+        self.create_subscription(Point, "~/plate_offset", self._on_plate, 10)
+        self.create_subscription(
+            JointState, "~/joint_states_1", lambda m: self._on_joints(0, m), 10)
+        self.create_subscription(
+            JointState, "~/joint_states_2", lambda m: self._on_joints(1, m), 10)
 
         self._lock = threading.Lock()
         self._rc: list[int] | None = None
@@ -199,7 +253,12 @@ class SupervisorNode(Node):
         self._last_mode = ""
         self._clamp_k = 1.0
         self._rejected = 0
-        self._autonomous_warned = False
+        self._plate_x: float | None = None
+        self._plate_wall = 0.0
+        # Motor-shaft position per controller, [channel1, channel2]; None until seen.
+        self._joints: list[list[float] | None] = [None, None]
+        self._was_autonomous = False
+        self._last_phase = ""
 
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._on_tick)
         self.create_timer(0.5, self._on_diag)
@@ -253,6 +312,37 @@ class SupervisorNode(Node):
             self._rc = [int(v) for v in msg.data]
             self._rc_wall = time.monotonic()
 
+    def _on_plate(self, msg: Point) -> None:
+        """Latch where the plate sits, as a normalised error signal."""
+        self._plate_x = float(msg.x)
+        self._plate_wall = time.monotonic()
+
+    def _on_joints(self, controller: int, msg: JointState) -> None:
+        """Latch motor-shaft positions for one controller, in [ch1, ch2] order."""
+        if len(msg.position) < 2:
+            return  # a single-channel driver has nothing to say about four wheels
+        self._joints[controller] = [float(msg.position[0]), float(msg.position[1])]
+
+    def _distance(self) -> float | None:
+        """Forward travel in metres, averaged over the four wheels.
+
+        None until every wheel has reported. Positions come from the motor
+        shaft, so the gear ratio divides out; wheel_signs undo the mirrored
+        mounting so all four agree on which way is forward.
+        """
+        if any(j is None for j in self._joints):
+            return None
+        total = 0.0
+        for i in range(4):
+            controller = self.controller_ids.index(self.wheel_slave_ids[i])
+            position = self._joints[controller][self.wheel_channels[i] - 1]
+            if self.counts_per_rev > 0:
+                # Driver is publishing raw counts; turn them into motor radians.
+                position = position / self.counts_per_rev * 2.0 * math.pi
+            total += position * self.wheel_signs[i]
+        mean_motor_rad = total / 4.0
+        return mean_motor_rad / self.gear_ratio * self.geom.wheel_radius
+
     def _axis(self, value: int, invert: bool) -> float:
         """Pulse width in microseconds -> -1..+1, with a deadband at centre."""
         if abs(value - self.pwm_mid) <= self.deadband:
@@ -272,28 +362,15 @@ class SupervisorNode(Node):
 
     # ── decision ────────────────────────────────────────────────────────────
     def _twist(self, rc: list[int], mode: str, brake: int) -> tuple[float, float, float]:
-        """Operator sticks -> body twist, according to the selected mode.
+        """Operator sticks -> body twist, for the two MANUAL modes.
 
         Throttle always means forward/back. What the steer stick means is the
-        whole difference between the two manual modes: in base it yaws the
-        machine, in mecanum it slides it sideways without changing heading.
+        whole difference between them: in base it yaws the machine, in mecanum
+        it slides it sideways without changing heading.
         """
         # Brake wins over the sticks in the same tick it is seen.
         if brake:
             return 0.0, 0.0, 0.0
-
-        if mode == self.mode_autonomous:
-            # No autonomous behaviour exists yet. Driving the sticks here would
-            # make a mode labelled "autonomous" behave manually, so hold still
-            # and say so instead of guessing.
-            if not self._autonomous_warned:
-                self._autonomous_warned = True
-                self.get_logger().warn(
-                    "autonomous mode selected but not implemented; holding still. "
-                    "Switch to base or mecanum to drive."
-                )
-            return 0.0, 0.0, 0.0
-        self._autonomous_warned = False
 
         vx = self._axis(rc[CH["throttle"]], self.invert_throttle) * self.max_linear_x
         steer = self._axis(rc[CH["steer"]], self.invert_steer)
@@ -331,6 +408,10 @@ class SupervisorNode(Node):
                 self.get_logger().warn(
                     "no ~/rc within rc_timeout; commanding stop and idle equipment"
                 )
+            if self._was_autonomous:
+                self.sequence.reset()
+                self._was_autonomous = False
+                self._publish_phase("")
             self._publish(self._split_by_controller([0.0] * 4), IDLE_COMMAND, "unknown")
             self._clamp_k = 1.0
             return
@@ -341,7 +422,20 @@ class SupervisorNode(Node):
 
         mode = self._mode_name(rc[CH["mode"]])
         brake = 1 if rc[CH["brake"]] else 0
-        vx, vy, wz = self._twist(rc, mode, brake)
+        auto_drill = 0
+
+        if mode == self.mode_autonomous:
+            vx, vy, wz, auto_drill = self._autonomous(now, brake)
+        else:
+            if self._was_autonomous:
+                # Leaving autonomous re-arms it: the sequence restarts from
+                # scratch next time, so a finished or aborted run never resumes
+                # on its own.
+                self.sequence.reset()
+                self._was_autonomous = False
+                self._publish_phase("")
+            vx, vy, wz = self._twist(rc, mode, brake)
+
         wheel_rpm, k = self._wheel_rpm(vx, vy, wz)
         self._clamp_k = k
 
@@ -349,11 +443,67 @@ class SupervisorNode(Node):
         command = [
             lift,
             brake,
-            1 if rc[CH["drill"]] else 0,
+            # The operator's drill switch and the sequence's request are both
+            # honoured; either one alone turns it on.
+            1 if (rc[CH["drill"]] or auto_drill) else 0,
             max(-1, min(1, rc[CH["actuator"]])),
             1 if rc[CH["solenoid"]] else 0,
         ]
         self._publish(self._split_by_controller(wheel_rpm), command, mode)
+
+    def _autonomous(self, now: float, brake: int) -> tuple[float, float, float, int]:
+        """Run one tick of the approach sequence.
+
+        Every hardware-facing guard lives here rather than in the state machine,
+        so the machine stays pure: brake and missing odometry abort it, and the
+        abort is terminal until the operator leaves autonomous and comes back.
+        """
+        if not self._was_autonomous:
+            self.sequence.reset()
+            self._was_autonomous = True
+            self.get_logger().warn(
+                "autonomous armed: the machine will drive itself under the vehicle "
+                "and RUN THE DRILL. Brake or switch modes to stop it."
+            )
+
+        if brake:
+            if self.sequence.phase not in TERMINAL:
+                self.sequence.abort("brake pressed")
+                self.get_logger().warn("autonomous aborted: brake")
+            self._publish_phase(self.sequence.phase.value)
+            return 0.0, 0.0, 0.0, 0
+
+        distance = self._distance()
+        if distance is None:
+            # ENTER measures travel on the encoders. Without them the machine
+            # would drive under the car with no idea how far it had gone, and
+            # then drill wherever it happened to be.
+            if self.sequence.phase not in TERMINAL:
+                self.sequence.abort("no wheel odometry")
+                self.get_logger().error(
+                    "autonomous aborted: no ~/joint_states from both controllers, "
+                    "so the entry distance cannot be measured"
+                )
+            self._publish_phase(self.sequence.phase.value)
+            return 0.0, 0.0, 0.0, 0
+
+        plate_age = (now - self._plate_wall) if self._plate_wall else None
+        action = self.sequence.step(Observation(
+            now=now,
+            plate_offset_x=self._plate_x,
+            plate_age=plate_age,
+            distance=distance,
+        ))
+        if action.phase.value != self._last_phase:
+            self.get_logger().info(
+                f"autonomous: {action.phase.value} - {action.message}"
+            )
+        self._publish_phase(action.phase.value)
+        return action.vx, action.vy, action.wz, action.drill
+
+    def _publish_phase(self, phase: str) -> None:
+        self._last_phase = phase
+        self.pub_phase.publish(String(data=phase))
 
     def _gated_lift(self, rc: list[int]) -> int:
         """Operator lift request, stopped at whichever limit switch is closed."""
@@ -406,6 +556,7 @@ class SupervisorNode(Node):
             rc = self._rc
             age = time.monotonic() - self._rc_wall if self._rc_wall else None
 
+        distance = self._distance()
         status = DiagnosticStatus()
         status.name = "mdrobot_supervisor: decision"
         status.hardware_id = "mecanum"
@@ -427,6 +578,9 @@ class SupervisorNode(Node):
             KeyValue(key="rc_rejected", value=str(self._rejected)),
             KeyValue(key="limit_gating", value=str(self.limit_gating)),
             KeyValue(key="roller_layout", value=self.geom.roller_layout),
+            KeyValue(key="auto_phase", value=self._last_phase or "-"),
+            KeyValue(key="distance_m", value=(
+                "n/a" if distance is None else f"{distance:.3f}")),
         ]
         if rc is not None:
             status.values += [KeyValue(key=n, value=str(v))

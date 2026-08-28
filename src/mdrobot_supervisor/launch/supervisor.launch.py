@@ -43,6 +43,9 @@ def generate_launch_description() -> LaunchDescription:
             ("~/command", "/mdrobot_rc_bridge/command"),
             ("~/cmd_velocity_1", "/md1/cmd_velocity"),
             ("~/cmd_velocity_2", "/md2/cmd_velocity"),
+            ("~/joint_states_1", "/md1/joint_states"),
+            ("~/joint_states_2", "/md2/joint_states"),
+            ("~/plate_offset", "/mdrobot_plate_ocr/plate_offset"),
         ],
     )
     return LaunchDescription(args + [node])

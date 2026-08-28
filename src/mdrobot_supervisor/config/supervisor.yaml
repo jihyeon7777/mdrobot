@@ -69,3 +69,28 @@
     #    0 mecanum     throttle = forward/back, steer = STRAFE (no heading change)
     #    1 autonomous  NOT IMPLEMENTED — the node holds still in this mode
     mode_names: ['base', 'mecanum', 'autonomous']
+
+    # ── autonomous approach ────────────────────────────────────────────────
+    # Sequence: wait for a plate -> creep forward while strafing onto it ->
+    # the plate drops out of view as the machine reaches the car, from which
+    # point it drives BLIND for auto_entry_distance -> stop and drill.
+    #
+    # ENTER is dead reckoning on the wheel encoders. Mecanum wheels slip more
+    # than most — the rollers are meant to — so that distance is an estimate,
+    # not a measurement, and it decides where a hole gets drilled. Keep the
+    # distance short, the speed low, and treat the timeouts as real guards.
+    auto_plate_timeout: 0.5      # s without a plate reading before it counts as lost
+    auto_align_gain: 0.4         # strafe m/s per unit of normalised plate offset
+    auto_align_tolerance: 0.08   # |offset.x| this small counts as centred
+    auto_approach_speed: 0.08    # m/s forward while aligning
+    auto_entry_distance: 1.2     # m to travel blind after losing the plate
+    auto_entry_speed: 0.08       # m/s forward while entering
+    auto_drill_seconds: 5.0      # how long the drill runs once in position
+    auto_max_align_seconds: 60.0
+    auto_max_entry_seconds: 60.0
+
+    # Wheel odometry source. 0.0 means ~/joint_states already carries radians,
+    # which is what mdrobot_ros2_driver publishes once its OWN counts_per_rev is
+    # set. Leave it 0.0 and set counts_per_rev on the drivers; only set a value
+    # here if the drivers are publishing raw counts.
+    counts_per_rev: 0.0
