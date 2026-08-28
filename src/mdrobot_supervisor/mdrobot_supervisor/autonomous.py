@@ -9,11 +9,15 @@ The sequence
 The operator drives to the front of the vehicle by hand and flips the switch to
 autonomous. From there:
 
-    WAIT_PLATE  hold still until the camera has a plate to work from
+    WAIT_PLATE  hold still until the front camera has a plate to work from
     ALIGN       creep forward while strafing to put the plate on centre
     ENTER       the plate has gone out of view under the car; keep going blind
                 for entry_distance, measured on the wheel encoders
     DRILL       stop, run the drill for drill_seconds
+    FIND_HOLE   wait for the upward camera to pick out the hole just drilled
+    ALIGN_HOLE  shuffle in both axes to bring the hole over the actuator
+    RAISE       drive the actuator up into the hole for actuator_seconds
+    SPRAY       open the solenoid for spray_seconds; water goes through the hole
     DONE        hold still; the operator takes it from here
 
 ABORT is entered instead of any of the above when a guard trips, and like DONE
@@ -42,6 +46,10 @@ class Phase(Enum):
     ALIGN = "align"
     ENTER = "enter"
     DRILL = "drill"
+    FIND_HOLE = "find_hole"
+    ALIGN_HOLE = "align_hole"
+    RAISE = "raise"
+    SPRAY = "spray"
     DONE = "done"
     ABORT = "abort"
 
@@ -60,19 +68,44 @@ class AutonomousConfig:
     entry_distance: float = 1.2  # m to travel blind after losing the plate
     entry_speed: float = 0.08  # m/s forward while entering
     drill_seconds: float = 5.0  # how long the drill runs once in position
+
+    # Hole alignment, off the upward-facing camera. Offsets are normalised
+    # [-1, 1] against the frame; the target is where the ACTUATOR sits in that
+    # frame, which is not usually the centre.
+    hole_timeout: float = 0.5  # s without a hole reading before it counts as lost
+    hole_target_x: float = 0.0
+    hole_target_y: float = 0.0
+    hole_tolerance: float = 0.05  # both axes within this counts as lined up
+    # Signed: which way the machine must move to reduce an offset depends on how
+    # the camera is mounted, and it is not fitted yet. Verify both before use.
+    hole_gain_x: float = -0.3  # m/s of vy per unit of x offset
+    hole_gain_y: float = -0.3  # m/s of vx per unit of y offset
+    hole_max_speed: float = 0.05  # m/s cap while shuffling under the car
+
+    actuator_seconds: float = 3.0  # how long to drive the actuator up
+    spray_seconds: float = 10.0  # how long the solenoid stays open
+
     max_align_seconds: float = 60.0
     max_entry_seconds: float = 60.0
+    max_find_hole_seconds: float = 30.0
+    max_hole_align_seconds: float = 60.0
 
     def __post_init__(self) -> None:
         for name in ("plate_timeout", "align_gain", "approach_speed",
                      "entry_distance", "entry_speed", "drill_seconds",
-                     "max_align_seconds", "max_entry_seconds"):
+                     "hole_timeout", "hole_max_speed", "actuator_seconds",
+                     "spray_seconds", "max_align_seconds", "max_entry_seconds",
+                     "max_find_hole_seconds", "max_hole_align_seconds"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
-        if self.align_tolerance <= 0 or self.align_tolerance >= 1:
-            raise ValueError(
-                f"align_tolerance must be within (0, 1), got {self.align_tolerance}"
-            )
+        for name in ("align_tolerance", "hole_tolerance"):
+            value = getattr(self, name)
+            if value <= 0 or value >= 1:
+                raise ValueError(f"{name} must be within (0, 1), got {value}")
+        for name in ("hole_target_x", "hole_target_y"):
+            value = getattr(self, name)
+            if not -1.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be within [-1, 1], got {value}")
 
 
 @dataclass(frozen=True)
@@ -83,6 +116,10 @@ class Observation:
     plate_offset_x: float | None  # normalised [-1, 1]; positive = plate right of centre
     plate_age: float | None  # seconds since the last plate reading, None if never
     distance: float  # forward travel from the wheel encoders, metres, monotonic-ish
+    # Upward camera: where the drilled hole sits in the frame, normalised [-1, 1].
+    hole_offset_x: float | None = None
+    hole_offset_y: float | None = None
+    hole_age: float | None = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +130,8 @@ class Action:
     vy: float = 0.0
     wz: float = 0.0
     drill: int = 0
+    actuator: int = 0  # -1 down, 0 hold, +1 up
+    solenoid: int = 0
     phase: Phase = Phase.WAIT_PLATE
     message: str = ""
 
@@ -175,10 +214,63 @@ class AutonomousSequence:
 
         if self.phase is Phase.DRILL:
             if elapsed >= cfg.drill_seconds:
-                self._enter(Phase.DONE, obs.now, "drill finished")
+                self._enter(Phase.FIND_HOLE, obs.now, "drill finished; looking for the hole")
                 return Action(phase=self.phase, message=self._message)
             self._message = f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
             return Action(drill=1, phase=self.phase, message=self._message)
+
+        seen = (obs.hole_offset_x, obs.hole_offset_y, obs.hole_age)
+        have_hole = all(v is not None for v in seen)
+        hole_fresh = have_hole and obs.hole_age <= cfg.hole_timeout
+
+        if self.phase is Phase.FIND_HOLE:
+            if elapsed > cfg.max_find_hole_seconds:
+                self.abort(
+                    f"the hole was not found within {cfg.max_find_hole_seconds:.0f} s"
+                )
+                return Action(phase=self.phase, message=self._message)
+            if hole_fresh:
+                self._enter(Phase.ALIGN_HOLE, obs.now, "hole found; lining up the actuator")
+            return Action(phase=self.phase, message=self._message)
+
+        if self.phase is Phase.ALIGN_HOLE:
+            if elapsed > cfg.max_hole_align_seconds:
+                self.abort(
+                    f"hole alignment exceeded {cfg.max_hole_align_seconds:.0f} s"
+                )
+                return Action(phase=self.phase, message=self._message)
+            if not hole_fresh:
+                # Losing sight of the hole here is not a cue to carry on: the
+                # actuator would come up through whatever is above it.
+                self.abort("lost sight of the hole while lining up")
+                return Action(phase=self.phase, message=self._message)
+            ex = obs.hole_offset_x - cfg.hole_target_x
+            ey = obs.hole_offset_y - cfg.hole_target_y
+            if abs(ex) <= cfg.hole_tolerance and abs(ey) <= cfg.hole_tolerance:
+                self._enter(Phase.RAISE, obs.now,
+                            f"lined up (dx {ex:+.3f}, dy {ey:+.3f}); raising")
+                return Action(actuator=1, phase=self.phase, message=self._message)
+            cap = cfg.hole_max_speed
+            vy = max(-cap, min(cap, cfg.hole_gain_x * ex))
+            vx = max(-cap, min(cap, cfg.hole_gain_y * ey))
+            self._message = f"lining up dx {ex:+.3f} dy {ey:+.3f}"
+            return Action(vx=vx, vy=vy, phase=self.phase, message=self._message)
+
+        if self.phase is Phase.RAISE:
+            if elapsed >= cfg.actuator_seconds:
+                self._enter(Phase.SPRAY, obs.now, "actuator up; opening the valve")
+                return Action(solenoid=1, phase=self.phase, message=self._message)
+            self._message = f"raising {elapsed:.1f}/{cfg.actuator_seconds:.1f} s"
+            return Action(actuator=1, phase=self.phase, message=self._message)
+
+        if self.phase is Phase.SPRAY:
+            if elapsed >= cfg.spray_seconds:
+                self._enter(Phase.DONE, obs.now, "spray finished")
+                return Action(phase=self.phase, message=self._message)
+            self._message = f"spraying {elapsed:.1f}/{cfg.spray_seconds:.1f} s"
+            # The actuator is left at 0, not driven: it has reached the hole, and
+            # holding +1 against a hard stop would stall it for the whole spray.
+            return Action(solenoid=1, phase=self.phase, message=self._message)
 
         # DONE and ABORT both hold still.
         return Action(phase=self.phase, message=self._message)

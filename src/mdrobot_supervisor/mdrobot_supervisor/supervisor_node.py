@@ -50,6 +50,8 @@ Subscriptions:
   ~/rc (std_msgs/Int32MultiArray)   the bridge's ~/channels, ten operator channels
   ~/plate_offset (geometry_msgs/Point)  plate position from mdrobot_plate_ocr;
                                     x normalised [-1, 1], positive = right of centre
+  ~/hole_offset (geometry_msgs/Point)   drilled hole in the upward camera's frame,
+                                    x/y normalised [-1, 1]. No publisher yet
   ~/joint_states_1, ~/joint_states_2 (sensor_msgs/JointState)  wheel positions,
                                     for the blind entry distance
 
@@ -72,9 +74,10 @@ The operator's three-position switch reports -1, 0 or +1:
                   steer YAWS the machine left and right
    0  mecanum     throttle is forward/back as before, but steer STRAFES — pull
                   left and the machine slides left without changing heading
-   1  autonomous  runs the approach sequence in autonomous.py: wait for a plate,
+   1  autonomous  runs the whole sequence in autonomous.py: wait for a plate,
                   creep forward while strafing onto it, keep going blind once it
-                  drops out of view, then stop and DRILL
+                  drops out of view, DRILL, then find the hole with the upward
+                  camera, line the actuator up under it, raise it and SPRAY
 
 Autonomous drives the machine under a car and runs a drill with no further
 operator input. Selecting the mode is the arming action. It aborts on brake, on
@@ -83,8 +86,10 @@ no way to know how far under the car it has gone. An abort is terminal: the
 operator has to leave autonomous and come back, which is the deliberate act that
 should be needed to re-arm a drill.
 
-Subscriptions it needs: ~/plate_offset from mdrobot_plate_ocr, and
-~/joint_states_1 / ~/joint_states_2 from the two motor drivers.
+Subscriptions it needs: ~/plate_offset from mdrobot_plate_ocr,
+~/joint_states_1 / ~/joint_states_2 from the two motor drivers, and ~/hole_offset
+from an upward-facing camera — which does not exist yet, so the sequence stops
+at find_hole and times out.
 
 Safety
 ------
@@ -168,6 +173,22 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_drill_seconds", 5.0)
         self.declare_parameter("auto_max_align_seconds", 60.0)
         self.declare_parameter("auto_max_entry_seconds", 60.0)
+        self.declare_parameter("auto_hole_timeout", 0.5)
+        self.declare_parameter("auto_hole_target_x", 0.0)
+        self.declare_parameter("auto_hole_target_y", 0.0)
+        self.declare_parameter("auto_hole_tolerance", 0.05)
+        self.declare_parameter("auto_hole_gain_x", -0.3)
+        self.declare_parameter("auto_hole_gain_y", -0.3)
+        self.declare_parameter("auto_hole_max_speed", 0.05)
+        self.declare_parameter("auto_actuator_seconds", 3.0)
+        self.declare_parameter("auto_spray_seconds", 10.0)
+        self.declare_parameter("auto_max_find_hole_seconds", 30.0)
+        self.declare_parameter("auto_max_hole_align_seconds", 60.0)
+        # Odometry sanity: the drivers publish raw counts unless their own
+        # counts_per_rev is set, and counts read as radians look like enormous
+        # travel. Abort if the measured speed exceeds what was ever commanded by
+        # more than this factor.
+        self.declare_parameter("odom_max_speed_factor", 4.0)
 
         self.rc_timeout = float(self.get_parameter("rc_timeout").value)
         self.pwm_min = int(self.get_parameter("pwm_min").value)
@@ -228,7 +249,25 @@ class SupervisorNode(Node):
             drill_seconds=float(self.get_parameter("auto_drill_seconds").value),
             max_align_seconds=float(self.get_parameter("auto_max_align_seconds").value),
             max_entry_seconds=float(self.get_parameter("auto_max_entry_seconds").value),
+            hole_timeout=float(self.get_parameter("auto_hole_timeout").value),
+            hole_target_x=float(self.get_parameter("auto_hole_target_x").value),
+            hole_target_y=float(self.get_parameter("auto_hole_target_y").value),
+            hole_tolerance=float(self.get_parameter("auto_hole_tolerance").value),
+            hole_gain_x=float(self.get_parameter("auto_hole_gain_x").value),
+            hole_gain_y=float(self.get_parameter("auto_hole_gain_y").value),
+            hole_max_speed=float(self.get_parameter("auto_hole_max_speed").value),
+            actuator_seconds=float(self.get_parameter("auto_actuator_seconds").value),
+            spray_seconds=float(self.get_parameter("auto_spray_seconds").value),
+            max_find_hole_seconds=float(
+                self.get_parameter("auto_max_find_hole_seconds").value),
+            max_hole_align_seconds=float(
+                self.get_parameter("auto_max_hole_align_seconds").value),
         )
+        self.odom_max_speed_factor = float(self.get_parameter("odom_max_speed_factor").value)
+        if self.odom_max_speed_factor <= 1.0:
+            raise ValueError(
+                f"odom_max_speed_factor must exceed 1, got {self.odom_max_speed_factor}"
+            )
         self.sequence = AutonomousSequence(self.auto_config)
 
         self.pub_drive = [
@@ -241,6 +280,7 @@ class SupervisorNode(Node):
         self.pub_phase = self.create_publisher(String, "~/auto_phase", 10)
         self.create_subscription(Int32MultiArray, "~/rc", self._on_rc, 10)
         self.create_subscription(Point, "~/plate_offset", self._on_plate, 10)
+        self.create_subscription(Point, "~/hole_offset", self._on_hole, 10)
         self.create_subscription(
             JointState, "~/joint_states_1", lambda m: self._on_joints(0, m), 10)
         self.create_subscription(
@@ -255,10 +295,17 @@ class SupervisorNode(Node):
         self._rejected = 0
         self._plate_x: float | None = None
         self._plate_wall = 0.0
+        self._hole_x: float | None = None
+        self._hole_y: float | None = None
+        self._hole_wall = 0.0
+        # Previous odometry sample, for the plausibility check.
+        self._odom_prev: tuple[float, float] | None = None
         # Motor-shaft position per controller, [channel1, channel2]; None until seen.
         self._joints: list[list[float] | None] = [None, None]
         self._was_autonomous = False
         self._last_phase = ""
+        self._auto_actuator = 0
+        self._auto_solenoid = 0
 
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._on_tick)
         self.create_timer(0.5, self._on_diag)
@@ -316,6 +363,12 @@ class SupervisorNode(Node):
         """Latch where the plate sits, as a normalised error signal."""
         self._plate_x = float(msg.x)
         self._plate_wall = time.monotonic()
+
+    def _on_hole(self, msg: Point) -> None:
+        """Latch where the drilled hole sits in the upward camera's frame."""
+        self._hole_x = float(msg.x)
+        self._hole_y = float(msg.y)
+        self._hole_wall = time.monotonic()
 
     def _on_joints(self, controller: int, msg: JointState) -> None:
         """Latch motor-shaft positions for one controller, in [ch1, ch2] order."""
@@ -424,6 +477,8 @@ class SupervisorNode(Node):
         brake = 1 if rc[CH["brake"]] else 0
         auto_drill = 0
 
+        self._auto_actuator = 0
+        self._auto_solenoid = 0
         if mode == self.mode_autonomous:
             vx, vy, wz, auto_drill = self._autonomous(now, brake)
         else:
@@ -446,8 +501,10 @@ class SupervisorNode(Node):
             # The operator's drill switch and the sequence's request are both
             # honoured; either one alone turns it on.
             1 if (rc[CH["drill"]] or auto_drill) else 0,
-            max(-1, min(1, rc[CH["actuator"]])),
-            1 if rc[CH["solenoid"]] else 0,
+            # The operator can always drive the actuator; the sequence takes it
+            # only when the operator has left it alone.
+            max(-1, min(1, rc[CH["actuator"]] or self._auto_actuator)),
+            1 if (rc[CH["solenoid"]] or self._auto_solenoid) else 0,
         ]
         self._publish(self._split_by_controller(wheel_rpm), command, mode)
 
@@ -487,19 +544,59 @@ class SupervisorNode(Node):
             self._publish_phase(self.sequence.phase.value)
             return 0.0, 0.0, 0.0, 0
 
+        implausible = self._odometry_implausible(now, distance)
+        if implausible is not None:
+            if self.sequence.phase not in TERMINAL:
+                self.sequence.abort(implausible)
+                self.get_logger().error(f"autonomous aborted: {implausible}")
+            self._publish_phase(self.sequence.phase.value)
+            return 0.0, 0.0, 0.0, 0
+
         plate_age = (now - self._plate_wall) if self._plate_wall else None
+        hole_age = (now - self._hole_wall) if self._hole_wall else None
         action = self.sequence.step(Observation(
             now=now,
             plate_offset_x=self._plate_x,
             plate_age=plate_age,
             distance=distance,
+            hole_offset_x=self._hole_x,
+            hole_offset_y=self._hole_y,
+            hole_age=hole_age,
         ))
         if action.phase.value != self._last_phase:
             self.get_logger().info(
                 f"autonomous: {action.phase.value} - {action.message}"
             )
         self._publish_phase(action.phase.value)
+        self._auto_actuator = action.actuator
+        self._auto_solenoid = action.solenoid
         return action.vx, action.vy, action.wz, action.drill
+
+    def _odometry_implausible(self, now: float, distance: float) -> str | None:
+        """Catch odometry that cannot be what it claims, and say why.
+
+        The drivers publish raw encoder counts unless their own counts_per_rev
+        is set. Counts read as radians look like tens of metres of travel per
+        second, which would carry the sequence through ENTER in a single tick
+        and drill on the spot. Anything moving faster than the machine was ever
+        commanded to move is not a reading worth acting on.
+        """
+        previous = self._odom_prev
+        self._odom_prev = (now, distance)
+        if previous is None:
+            return None
+        dt = now - previous[0]
+        if dt <= 0:
+            return None
+        speed = abs(distance - previous[1]) / dt
+        ceiling = max(self.max_linear_x, self.max_linear_y) * self.odom_max_speed_factor
+        if speed > ceiling:
+            return (
+                f"odometry reports {speed:.1f} m/s, over {ceiling:.1f} m/s. "
+                f"The drivers are probably publishing raw counts: set "
+                f"counts_per_rev on them, or on this node."
+            )
+        return None
 
     def _publish_phase(self, phase: str) -> None:
         self._last_phase = phase

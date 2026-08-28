@@ -94,3 +94,30 @@
     # set. Leave it 0.0 and set counts_per_rev on the drivers; only set a value
     # here if the drivers are publishing raw counts.
     counts_per_rev: 0.0
+
+    # ── hole alignment, actuator, spray ────────────────────────────────────
+    # After drilling, an upward-facing camera picks out the hole and the machine
+    # shuffles until the hole sits over the ACTUATOR, not over the frame centre —
+    # hole_target_x/y say where the actuator appears in that frame.
+    #
+    # The gain SIGNS depend on how the camera is mounted, and the camera is not
+    # fitted yet. Verify both on the bench before running this under a car: a
+    # wrong sign drives away from the hole until the timeout trips.
+    auto_hole_timeout: 0.5        # s without a hole reading before it counts as lost
+    auto_hole_target_x: 0.0       # where the actuator sits in the frame, [-1, 1]
+    auto_hole_target_y: 0.0
+    auto_hole_tolerance: 0.05     # both axes within this counts as lined up
+    auto_hole_gain_x: -0.3        # m/s of vy per unit of x offset
+    auto_hole_gain_y: -0.3        # m/s of vx per unit of y offset
+    auto_hole_max_speed: 0.05     # m/s cap while shuffling under the car
+    auto_actuator_seconds: 3.0    # how long to drive the actuator up into the hole
+    auto_spray_seconds: 10.0      # how long the solenoid stays open
+    auto_max_find_hole_seconds: 30.0
+    auto_max_hole_align_seconds: 60.0
+
+    # Odometry sanity check. The drivers publish RAW COUNTS unless their own
+    # counts_per_rev is set, and counts read as radians look like tens of metres
+    # per second — which would carry ENTER through in one tick and drill on the
+    # spot. Abort if the measured speed exceeds the fastest commanded speed by
+    # more than this factor.
+    odom_max_speed_factor: 4.0

@@ -65,6 +65,10 @@ the vehicle by hand and flips the switch; from there
 | `align` | creeps forward, strafes onto the plate | the plate drops out of view |
 | `enter` | drives **blind** under the car | `auto_entry_distance` on the encoders |
 | `drill` | stops, runs the drill | `auto_drill_seconds` elapse |
+| `find_hole` | waits for the upward camera to pick out the hole | a hole reading arrives |
+| `align_hole` | shuffles in both axes to put the hole over the actuator | both axes within `auto_hole_tolerance` |
+| `raise` | drives the actuator up into the hole | `auto_actuator_seconds` elapse |
+| `spray` | opens the solenoid; water goes through the hole | `auto_spray_seconds` elapse |
 | `done` | holds still | operator takes over |
 
 `abort` replaces any phase when a guard trips. `done` and `abort` are both
@@ -75,6 +79,11 @@ Alignment uses `~/plate_offset` from `mdrobot_plate_ocr`: `x` is normalised to
 [-1, 1] with positive meaning the plate sits right of centre, so it feeds
 straight in as an error signal.
 
+Hole alignment expects `~/hole_offset`, the same shape from an upward-facing
+camera. The target is where the **actuator** appears in that frame
+(`auto_hole_target_x/y`), not the frame centre. **No node publishes this yet** —
+see Known gaps.
+
 ### Guards
 
 Selecting the mode is the arming action. The sequence aborts on:
@@ -83,7 +92,12 @@ Selecting the mode is the arming action. The sequence aborts on:
 - **RC link lost** (`rc_timeout`)
 - **no wheel odometry** — without `~/joint_states` from both controllers there
   is no way to know how far under the car it has gone
-- **`auto_max_align_seconds` / `auto_max_entry_seconds`** exceeded
+- **`auto_max_align_seconds` / `auto_max_entry_seconds` /
+  `auto_max_find_hole_seconds` / `auto_max_hole_align_seconds`** exceeded
+- **losing sight of the hole while lining up** — carrying on would push the
+  actuator up through whatever happened to be above it
+- **implausible odometry** — travel faster than the machine was ever commanded
+  to move, which is what raw encoder counts read as if taken for radians
 
 Switching out of autonomous stops it immediately and resets it.
 
@@ -122,15 +136,26 @@ does guarantee:
 - **`max_linear_x: 0.2` asks for 611 motor rpm against a 600 cap**, so full
   throttle is always scaled to 0.98 and diagnostics sit at WARN. Both numbers are
   from `mecanum.yaml` as-is.
+- **Nothing publishes `~/hole_offset` yet.** The upward-facing camera is not
+  fitted, so the hole detector does not exist. The sequence stops at `find_hole`
+  and times out until one is written. It needs to publish a
+  `geometry_msgs/Point` with `x`/`y` normalised to [-1, 1] against the frame.
+- **`auto_hole_gain_x/y` signs are unverified.** Which way the machine has to
+  move to reduce an offset depends on how that camera ends up mounted. A wrong
+  sign drives away from the hole until the timeout trips. Check on the bench.
+- **The drivers are currently publishing raw counts.** `dual.yaml` has
+  `counts_per_rev: [0.0, 0.0]`, which makes `motor_driver_node` publish
+  `joint_states` in counts, not radians. Taken as radians that is roughly a
+  76x overestimate of travel, so `enter` would finish instantly and the drill
+  would fire at the entry point. `odom_max_speed_factor` catches it and aborts,
+  but the fix is to measure the real value with
+  `examples/calibrate_counts_per_rev.py` and set it on the drivers.
 - **The LED is not wired.** The plate-recognition LED has nowhere to go: the
   board's downlink carries only lift, brake, drill, actuator and solenoid.
   `~/auto_phase` reports the state in the meantime.
-- **Wheel odometry needs `counts_per_rev` set on the drivers**, so their
-  `~/joint_states` carries radians. The supervisor aborts autonomous rather than
-  guessing if the topic is missing, but it cannot tell radians from raw counts —
-  set the drivers up, or set `counts_per_rev` here.
-- Water spray is not part of the sequence; the solenoid stays on the operator's
-  switch.
+- The actuator is driven up for a fixed time and then released to 0 during the
+  spray, rather than held against a stop. Whether it stays up on its own is not
+  established, and the limit switches are wired to the lift, not to it.
 - The wheel map, geometry and gear ratio are copied from the untracked
   `mecanum.yaml`; the `mdrobot_mecanum` package it belonged to is no longer in
   the repository. Confirm they still describe the machine.

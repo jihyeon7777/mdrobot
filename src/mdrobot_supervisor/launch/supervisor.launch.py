@@ -46,6 +46,8 @@ def generate_launch_description() -> LaunchDescription:
             ("~/joint_states_1", "/md1/joint_states"),
             ("~/joint_states_2", "/md2/joint_states"),
             ("~/plate_offset", "/mdrobot_plate_ocr/plate_offset"),
+            # No node publishes this yet; the upward camera is not fitted.
+            ("~/hole_offset", "/mdrobot_hole_detector/hole_offset"),
         ],
     )
     return LaunchDescription(args + [node])
