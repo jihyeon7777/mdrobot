@@ -24,11 +24,12 @@
     max_rpm: 600.0            # hard cap per wheel, applied before writing
     command_timeout: 0.5      # s; stop the wheels if commands stop arriving (0 disables)
     # Bus budget, MEASURED on this hardware: a monitor read is 21 ms and a
-    # two-register velocity write is 18 ms, both controllers sharing one
-    # 19200-baud line. write_rate 10 Hz + publish_rate 5 Hz =
-    #   2 x 18 x 10  +  2 x 21 x 5  =  570 ms/s  ~ 57%
+    # velocity command 30 ms (it writes two registers), both controllers sharing
+    # one 19200-baud line. write_rate 10 Hz + publish_rate 5 Hz =
+    #   2 x 30 x 10  +  2 x 21 x 5  =  810 ms/s  ~ 81%
     # Raising either oversubscribes the bus. At 102% the command backlog grew
-    # until the wheels were answering a stick position seconds old.
+    # until the wheels were answering a stick position seconds old. If it still
+    # feels tight, drop write_rate to 8 Hz (69%) before touching publish_rate.
     write_rate: 10.0          # Hz; latched command -> bus
     publish_rate: 5.0         # Hz; joint_states
     diag_rate: 2.0            # Hz; diagnostics

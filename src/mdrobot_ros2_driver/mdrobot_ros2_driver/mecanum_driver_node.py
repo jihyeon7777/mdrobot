@@ -47,13 +47,14 @@ Services (std_srvs/Trigger):
   ~/enable ~/disable ~/stop ~/brake ~/torque_off ~/reset_position
 
 Bus budget, measured on this hardware rather than guessed: a monitor read costs
-21 ms and a two-register velocity write 18 ms. At write_rate 10 Hz and
-publish_rate 5 Hz that is 2*18*10 + 2*21*5 = 570 ms per second, about 57%.
+21 ms, a velocity command 30 ms. At write_rate 10 Hz and publish_rate 5 Hz that
+is 2*30*10 + 2*21*5 = 810 ms per second, about 81%.
 
-Both halves of that mattered. Writing the two velocity registers separately, as
-set_velocities does, costs 30 ms instead of 18; combined with joint_states at
-20 Hz the total came to 102% of the bus, and the backlog grew until the wheels
-were answering a stick position several seconds old.
+It used to be 102% — commands at 10 Hz and joint_states at 20 Hz — and the
+backlog grew until the wheels were answering a stick position several seconds
+old. Dropping joint_states to 5 Hz brings it inside budget, and latching the
+command instead of writing it from the callback bounds the latency whatever the
+bus is doing.
 
 Safety: with command_timeout > 0 the wheels stop when commands stop arriving.
 Bus access is serialised on a single-threaded executor, so reads and writes
@@ -78,8 +79,6 @@ from std_msgs.msg import Float64MultiArray
 from std_srvs.srv import Trigger
 
 from mdrobot import DualMotorDriver
-from mdrobot import registers as reg
-from mdrobot.codec import word_from_int16
 from mdrobot.exceptions import MdrobotError
 from mdrobot.protocol import ModbusClient
 from mdrobot.transport import SerialTransport, resolve_port
@@ -248,13 +247,19 @@ class MecanumDriverNode(Node):
         self._stopped = False
 
     def _write_command(self, wheel_rpm: list[float]) -> None:
-        """One bus transaction per controller, carrying both channels.
+        """Command both channels of each controller.
 
-        set_velocities() writes PID_VEL_CMD and PID_VEL_CMD2 separately, two
-        transactions at ~15 ms each. The registers are consecutive, so a single
-        write-multiple covers both in ~18 ms — measured on this bus, and the
-        difference is what puts the whole system inside its budget rather than
-        just over it.
+        set_velocities() costs two transactions, ~30 ms, because PID_VEL_CMD and
+        PID_VEL_CMD2 are written separately. Batching them into one 0x10
+        write-multiple looked like a free halving and the controller even echoed
+        the response — but the wheels stopped moving. PID_VEL_CMD is a
+        single-word command, so a two-word write lands as parameter writes and
+        never triggers the velocity path. Writing zeros while measuring could
+        not have caught that.
+
+        PID_PNT_VEL_CMD (207) is the documented dual-velocity command and would
+        be one transaction. It is untested here; verify it on a bench with the
+        wheels off the ground before trusting it.
         """
         for slave, driver in self.drivers.items():
             pair = [0, 0]
@@ -262,10 +267,7 @@ class MecanumDriverNode(Node):
                 if self.wheel_slave_ids[i] == slave:
                     pair[self.wheel_channels[i] - 1] = int(round(wheel_rpm[i]))
             try:
-                driver.client.write_registers(
-                    reg.PID_VEL_CMD,
-                    [word_from_int16(pair[0]), word_from_int16(pair[1])],
-                )
+                driver.set_velocities(pair[0], pair[1])
             except BUS_ERRORS as exc:
                 self._errors += 1
                 self.get_logger().error(
