@@ -20,13 +20,12 @@
 
     # What full stick deflection asks for. These are operator targets, not what
     # the hardware can do — max_motor_rpm is the hard cap.
-    # NOTE: 0.2 m/s asks for slightly MORE than max_motor_rpm allows —
+    # 0.19 rather than mecanum.yaml's 0.2: at r=0.0625 and gear 20, 0.2 m/s needs
     #   0.2 / 0.0625 = 3.2 rad/s at the wheel -> 30.6 wheel rpm -> x20 = 611 motor rpm
-    # against a 600 cap, so full throttle is always scaled to 0.98 and diagnostics
-    # sit at WARN. Both numbers come from mecanum.yaml as-is. Drop this to 0.196
-    # (or raise the cap) if you want full stick to mean exactly the cap.
-    max_linear_x: 0.2       # m/s;   forward/back, both manual modes
-    max_linear_y: 0.2       # m/s;   strafe, mecanum mode only
+    # against the 600 cap, so full stick was always being scaled back to 0.98 and
+    # diagnostics sat at WARN. 0.19 leaves full stick just inside the cap.
+    max_linear_x: 0.19      # m/s;   forward/back, both manual modes
+    max_linear_y: 0.19      # m/s;   strafe, mecanum mode only
     max_angular_z: 0.37     # rad/s; yaw, base mode only
 
     # ── mecanum base ───────────────────────────────────────────────────────
@@ -43,11 +42,10 @@
     # work. Only a floor test settles it.  x | o | unknown
     roller_layout: unknown
 
-    # Where each wheel lives, in front_left, front_right, rear_left, rear_right
-    # order. sign = +1 when a POSITIVE rpm drives the robot FORWARD.
-    wheel_slave_ids: [1, 1, 2, 2]
-    wheel_channels: [1, 2, 2, 1]
-    wheel_signs:    [-1, 1, -1, 1]
+    # sign = +1 when a POSITIVE rpm drives that wheel FORWARD, in front_left,
+    # front_right, rear_left, rear_right order. Which controller and channel each
+    # wheel hangs off belongs to mecanum_driver_node, not here.
+    wheel_signs: [-1, 1, -1, 1]
 
     # ── equipment ──────────────────────────────────────────────────────────
     lift_speed: 60          # what a full lift request commands (the board takes -60..60)
@@ -94,6 +92,12 @@
     # set. Leave it 0.0 and set counts_per_rev on the drivers; only set a value
     # here if the drivers are publishing raw counts.
     counts_per_rev: 0.0
+    # What ~/joint_states actually carries: 'rad', or 'count' with counts_per_rev
+    # set above. AUTONOMOUS REFUSES TO RUN while this is 'unset' — the drivers
+    # publish raw counts unless their own counts_per_rev is set, and counts taken
+    # for radians would end the blind entry in a single tick and fire the drill
+    # at the entry point. Measure with examples/calibrate_counts_per_rev.py.
+    wheel_position_units: unset
 
     # ── hole alignment, actuator, spray ────────────────────────────────────
     # After drilling, an upward-facing camera picks out the hole and the machine
@@ -103,6 +107,10 @@
     # The gain SIGNS depend on how the camera is mounted, and the camera is not
     # fitted yet. Verify both on the bench before running this under a car: a
     # wrong sign drives away from the hole until the timeout trips.
+    # OFF: the upward camera is not fitted, so nothing publishes ~/hole_offset.
+    # With this false the sequence finishes at the drill instead of stalling in
+    # find_hole until the timeout. Turn it on once the camera and detector exist.
+    auto_hole_stage: false
     auto_hole_timeout: 0.5        # s without a hole reading before it counts as lost
     auto_hole_target_x: 0.0       # where the actuator sits in the frame, [-1, 1]
     auto_hole_target_y: 0.0

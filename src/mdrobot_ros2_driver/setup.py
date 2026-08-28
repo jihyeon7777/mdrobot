@@ -25,6 +25,7 @@ setup(
     entry_points={
         "console_scripts": [
             "motor_driver_node = mdrobot_ros2_driver.motor_driver_node:main",
+            "mecanum_driver_node = mdrobot_ros2_driver.mecanum_driver_node:main",
         ],
     },
 )

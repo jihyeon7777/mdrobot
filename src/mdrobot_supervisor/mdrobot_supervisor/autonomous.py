@@ -14,6 +14,10 @@ autonomous. From there:
     ENTER       the plate has gone out of view under the car; keep going blind
                 for entry_distance, measured on the wheel encoders
     DRILL       stop, run the drill for drill_seconds
+
+The rest runs only with hole_stage on. It needs an upward-facing camera that is
+not fitted yet, so by default the sequence finishes at the drill.
+
     FIND_HOLE   wait for the upward camera to pick out the hole just drilled
     ALIGN_HOLE  shuffle in both axes to bring the hole over the actuator
     RAISE       drive the actuator up into the hole for actuator_seconds
@@ -84,6 +88,11 @@ class AutonomousConfig:
 
     actuator_seconds: float = 3.0  # how long to drive the actuator up
     spray_seconds: float = 10.0  # how long the solenoid stays open
+    # The upward camera is not fitted, so nothing publishes a hole offset. With
+    # this off the sequence finishes at the drill instead of stalling in
+    # FIND_HOLE until the timeout. Turn it on when the camera and its detector
+    # exist.
+    hole_stage: bool = False
 
     max_align_seconds: float = 60.0
     max_entry_seconds: float = 60.0
@@ -214,7 +223,12 @@ class AutonomousSequence:
 
         if self.phase is Phase.DRILL:
             if elapsed >= cfg.drill_seconds:
-                self._enter(Phase.FIND_HOLE, obs.now, "drill finished; looking for the hole")
+                if cfg.hole_stage:
+                    self._enter(Phase.FIND_HOLE, obs.now,
+                                "drill finished; looking for the hole")
+                else:
+                    self._enter(Phase.DONE, obs.now,
+                                "drill finished; hole stage disabled")
                 return Action(phase=self.phase, message=self._message)
             self._message = f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
             return Action(drill=1, phase=self.phase, message=self._message)

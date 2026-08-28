@@ -5,16 +5,16 @@
                                              ^                 |
                      equipment  ~/command ---+                 |
                                                                v
-                                        two motor_driver_node instances (MD, ttyUSB0)
+                                        mecanum_driver_node (MD x2 on one RS485 bus)
 
 Everything the machine does is decided here. The bridge below only reports and
 relays; the motor driver below only turns rpm into RS485 writes.
 
 Drive
 -----
-Four mecanum wheels on two dual-channel MD controllers. Operator steer/throttle
-become a body twist, the twist becomes four wheel speeds, and those are split
-across the two controllers by the wheel map.
+Four mecanum wheels. Operator steer/throttle become a body twist and the twist
+becomes four wheel speeds, published as one vector. Which controller and channel
+each wheel hangs off is the drive node's business.
 
 Throttle always means forward/back. What the steer stick means is the whole
 difference between the two manual modes — see Modes below.
@@ -33,13 +33,19 @@ Parameters (see config/supervisor.yaml for the full annotated set):
                              by base mode
   max_motor_rpm (float=600)  the hard cap, applied at the wheel
   wheel_radius/track/wheelbase/gear_ratio/roller_layout   base geometry
-  wheel_slave_ids/wheel_channels/wheel_signs  where each wheel lives, in
-                             front_left, front_right, rear_left, rear_right order
+  wheel_signs (int[])        +1 when a POSITIVE rpm drives that wheel forward, in
+                             front_left, front_right, rear_left, rear_right order.
+                             Which controller and channel each wheel hangs off is
+                             the driver node's business, not this one's
   lift_input (str='tristate') how the operator's lift channel reads:
                              'tristate' (-1/0/+1) or 'pwm' (a pulse width). It
                              was never observed moving, so 'tristate' is an
                              assumption; a tristate channel reporting anything
                              else holds lift at 0 rather than guessing
+  wheel_position_units (str='unset')  what ~/joint_states carries: 'rad' or
+                             'count' (with counts_per_rev). Autonomous refuses to
+                             run while this is 'unset', because counts taken for
+                             radians would end the blind entry in a single tick
   limit_gating (bool=False)  stop lift at the limit switches. OFF by default
                              because the switch polarity is not yet known — a
                              gate with the polarity backwards either blocks lift
@@ -52,12 +58,12 @@ Subscriptions:
                                     x normalised [-1, 1], positive = right of centre
   ~/hole_offset (geometry_msgs/Point)   drilled hole in the upward camera's frame,
                                     x/y normalised [-1, 1]. No publisher yet
-  ~/joint_states_1, ~/joint_states_2 (sensor_msgs/JointState)  wheel positions,
-                                    for the blind entry distance
+  ~/joint_states (sensor_msgs/JointState)  four wheel positions, for the blind
+                                    entry distance
 
 Publishers:
-  ~/cmd_velocity_1, ~/cmd_velocity_2 (std_msgs/Float64MultiArray)
-      [channel1_rpm, channel2_rpm] for each MD controller, motor-shaft rpm
+  ~/cmd_wheel_rpm (std_msgs/Float64MultiArray)
+      [front_left, front_right, rear_left, rear_right] motor-shaft rpm
   ~/command (std_msgs/Int32MultiArray)
       [lift, brake, drill, actuator, solenoid] for the bridge to relay
   ~/mode (std_msgs/String)
@@ -86,10 +92,10 @@ no way to know how far under the car it has gone. An abort is terminal: the
 operator has to leave autonomous and come back, which is the deliberate act that
 should be needed to re-arm a drill.
 
-Subscriptions it needs: ~/plate_offset from mdrobot_plate_ocr,
-~/joint_states_1 / ~/joint_states_2 from the two motor drivers, and ~/hole_offset
-from an upward-facing camera — which does not exist yet, so the sequence stops
-at find_hole and times out.
+Subscriptions it needs: ~/plate_offset from mdrobot_plate_ocr and ~/joint_states
+from the drive node. The hole stage additionally needs ~/hole_offset from an
+upward-facing camera, which is not fitted — auto_hole_stage is off by default and
+the sequence finishes at the drill.
 
 Safety
 ------
@@ -153,8 +159,6 @@ class SupervisorNode(Node):
         self.declare_parameter("wheelbase", 0.5)
         self.declare_parameter("gear_ratio", 20.0)
         self.declare_parameter("roller_layout", "unknown")
-        self.declare_parameter("wheel_slave_ids", [1, 1, 2, 2])
-        self.declare_parameter("wheel_channels", [1, 2, 2, 1])
         self.declare_parameter("wheel_signs", [-1, 1, -1, 1])
         self.declare_parameter("lift_speed", 60)
         self.declare_parameter("lift_input", "tristate")
@@ -164,6 +168,7 @@ class SupervisorNode(Node):
         # Wheel odometry. 0.0 means ~/joint_states already carries radians, which
         # is what the driver publishes once its own counts_per_rev is set.
         self.declare_parameter("counts_per_rev", 0.0)
+        self.declare_parameter("wheel_position_units", "unset")
         self.declare_parameter("auto_plate_timeout", 0.5)
         self.declare_parameter("auto_align_gain", 0.4)
         self.declare_parameter("auto_align_tolerance", 0.08)
@@ -173,6 +178,7 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_drill_seconds", 5.0)
         self.declare_parameter("auto_max_align_seconds", 60.0)
         self.declare_parameter("auto_max_entry_seconds", 60.0)
+        self.declare_parameter("auto_hole_stage", False)
         self.declare_parameter("auto_hole_timeout", 0.5)
         self.declare_parameter("auto_hole_target_x", 0.0)
         self.declare_parameter("auto_hole_target_y", 0.0)
@@ -217,10 +223,11 @@ class SupervisorNode(Node):
             roller_layout=str(self.get_parameter("roller_layout").value),
         )
 
-        self.wheel_slave_ids = [int(v) for v in self.get_parameter("wheel_slave_ids").value]
-        self.wheel_channels = [int(v) for v in self.get_parameter("wheel_channels").value]
         self.wheel_signs = [int(v) for v in self.get_parameter("wheel_signs").value]
-        self._validate_wheel_map()
+        if len(self.wheel_signs) != 4:
+            raise ValueError(f"wheel_signs needs 4 entries {WHEEL_NAMES}, got {self.wheel_signs}")
+        if set(self.wheel_signs) - {-1, 1}:
+            raise ValueError(f"wheel_signs entries must be -1 or +1, got {self.wheel_signs}")
 
         self.lift_speed = int(self.get_parameter("lift_speed").value)
         self.lift_input = str(self.get_parameter("lift_input").value).lower()
@@ -239,6 +246,16 @@ class SupervisorNode(Node):
         self.counts_per_rev = float(self.get_parameter("counts_per_rev").value)
         if self.counts_per_rev < 0:
             raise ValueError(f"counts_per_rev cannot be negative, got {self.counts_per_rev}")
+        self.position_units = str(self.get_parameter("wheel_position_units").value).lower()
+        if self.position_units not in ("rad", "count", "unset"):
+            raise ValueError(
+                f"wheel_position_units must be 'rad', 'count' or 'unset', "
+                f"got {self.position_units!r}"
+            )
+        if self.position_units == "count" and self.counts_per_rev <= 0:
+            raise ValueError(
+                "wheel_position_units is 'count', so counts_per_rev must be positive"
+            )
         self.auto_config = AutonomousConfig(
             plate_timeout=float(self.get_parameter("auto_plate_timeout").value),
             align_gain=float(self.get_parameter("auto_align_gain").value),
@@ -249,6 +266,7 @@ class SupervisorNode(Node):
             drill_seconds=float(self.get_parameter("auto_drill_seconds").value),
             max_align_seconds=float(self.get_parameter("auto_max_align_seconds").value),
             max_entry_seconds=float(self.get_parameter("auto_max_entry_seconds").value),
+            hole_stage=bool(self.get_parameter("auto_hole_stage").value),
             hole_timeout=float(self.get_parameter("auto_hole_timeout").value),
             hole_target_x=float(self.get_parameter("auto_hole_target_x").value),
             hole_target_y=float(self.get_parameter("auto_hole_target_y").value),
@@ -270,10 +288,7 @@ class SupervisorNode(Node):
             )
         self.sequence = AutonomousSequence(self.auto_config)
 
-        self.pub_drive = [
-            self.create_publisher(Float64MultiArray, "~/cmd_velocity_1", 10),
-            self.create_publisher(Float64MultiArray, "~/cmd_velocity_2", 10),
-        ]
+        self.pub_drive = self.create_publisher(Float64MultiArray, "~/cmd_wheel_rpm", 10)
         self.pub_command = self.create_publisher(Int32MultiArray, "~/command", 10)
         self.pub_mode = self.create_publisher(String, "~/mode", 10)
         self.pub_diag = self.create_publisher(DiagnosticArray, "~/diagnostics", 1)
@@ -281,10 +296,7 @@ class SupervisorNode(Node):
         self.create_subscription(Int32MultiArray, "~/rc", self._on_rc, 10)
         self.create_subscription(Point, "~/plate_offset", self._on_plate, 10)
         self.create_subscription(Point, "~/hole_offset", self._on_hole, 10)
-        self.create_subscription(
-            JointState, "~/joint_states_1", lambda m: self._on_joints(0, m), 10)
-        self.create_subscription(
-            JointState, "~/joint_states_2", lambda m: self._on_joints(1, m), 10)
+        self.create_subscription(JointState, "~/joint_states", self._on_joints, 10)
 
         self._lock = threading.Lock()
         self._rc: list[int] | None = None
@@ -300,8 +312,8 @@ class SupervisorNode(Node):
         self._hole_wall = 0.0
         # Previous odometry sample, for the plausibility check.
         self._odom_prev: tuple[float, float] | None = None
-        # Motor-shaft position per controller, [channel1, channel2]; None until seen.
-        self._joints: list[list[float] | None] = [None, None]
+        # Motor-shaft position per wheel, in WHEEL_NAMES order; None until seen.
+        self._wheel_positions: list[float] | None = None
         self._was_autonomous = False
         self._last_phase = ""
         self._auto_actuator = 0
@@ -325,26 +337,6 @@ class SupervisorNode(Node):
                 "limit_gating is off: limit switches are reported but do NOT stop the "
                 "lift. Measure the switch polarity, set limit_active_value, then enable."
             )
-
-    def _validate_wheel_map(self) -> None:
-        for name, values in (("wheel_slave_ids", self.wheel_slave_ids),
-                             ("wheel_channels", self.wheel_channels),
-                             ("wheel_signs", self.wheel_signs)):
-            if len(values) != 4:
-                raise ValueError(f"{name} needs 4 entries {WHEEL_NAMES}, got {values}")
-        if set(self.wheel_signs) - {-1, 1}:
-            raise ValueError(f"wheel_signs entries must be -1 or +1, got {self.wheel_signs}")
-        if set(self.wheel_channels) - {1, 2}:
-            raise ValueError(f"wheel_channels entries must be 1 or 2, got {self.wheel_channels}")
-        slots = list(zip(self.wheel_slave_ids, self.wheel_channels))
-        if len(set(slots)) != 4:
-            raise ValueError(
-                f"each wheel needs its own (slave_id, channel); got {slots}"
-            )
-        ids = sorted(set(self.wheel_slave_ids))
-        if len(ids) != 2:
-            raise ValueError(f"expected exactly 2 controllers, got slave ids {ids}")
-        self.controller_ids = ids
 
     # ── input ───────────────────────────────────────────────────────────────
     def _on_rc(self, msg: Int32MultiArray) -> None:
@@ -370,11 +362,16 @@ class SupervisorNode(Node):
         self._hole_y = float(msg.y)
         self._hole_wall = time.monotonic()
 
-    def _on_joints(self, controller: int, msg: JointState) -> None:
-        """Latch motor-shaft positions for one controller, in [ch1, ch2] order."""
-        if len(msg.position) < 2:
-            return  # a single-channel driver has nothing to say about four wheels
-        self._joints[controller] = [float(msg.position[0]), float(msg.position[1])]
+    def _on_joints(self, msg: JointState) -> None:
+        """Latch motor-shaft positions, one per wheel in WHEEL_NAMES order."""
+        if len(msg.position) != 4:
+            self.get_logger().warn(
+                f"~/joint_states carries {len(msg.position)} positions, expected 4 "
+                f"{WHEEL_NAMES}",
+                throttle_duration_sec=5.0,
+            )
+            return
+        self._wheel_positions = [float(p) for p in msg.position]
 
     def _distance(self) -> float | None:
         """Forward travel in metres, averaged over the four wheels.
@@ -382,14 +379,15 @@ class SupervisorNode(Node):
         None until every wheel has reported. Positions come from the motor
         shaft, so the gear ratio divides out; wheel_signs undo the mirrored
         mounting so all four agree on which way is forward.
+
+        Only meaningful once wheel_position_units says what ~/joint_states
+        actually carries — see _autonomous, which refuses to run without it.
         """
-        if any(j is None for j in self._joints):
+        if self._wheel_positions is None:
             return None
         total = 0.0
-        for i in range(4):
-            controller = self.controller_ids.index(self.wheel_slave_ids[i])
-            position = self._joints[controller][self.wheel_channels[i] - 1]
-            if self.counts_per_rev > 0:
+        for i, position in enumerate(self._wheel_positions):
+            if self.position_units == "count":
                 # Driver is publishing raw counts; turn them into motor radians.
                 position = position / self.counts_per_rev * 2.0 * math.pi
             total += position * self.wheel_signs[i]
@@ -441,14 +439,6 @@ class SupervisorNode(Node):
         rpm, k = scale_to_limit(rpm, self.max_motor_rpm)
         return [r * s for r, s in zip(rpm, self.wheel_signs)], k
 
-    def _split_by_controller(self, wheel_rpm: list[float]) -> list[list[float]]:
-        """Lay the four wheel speeds out as [channel1, channel2] per controller."""
-        out = [[0.0, 0.0] for _ in self.controller_ids]
-        for i, rpm in enumerate(wheel_rpm):
-            controller = self.controller_ids.index(self.wheel_slave_ids[i])
-            out[controller][self.wheel_channels[i] - 1] = rpm
-        return out
-
     def _on_tick(self) -> None:
         now = time.monotonic()
         with self._lock:
@@ -465,7 +455,7 @@ class SupervisorNode(Node):
                 self.sequence.reset()
                 self._was_autonomous = False
                 self._publish_phase("")
-            self._publish(self._split_by_controller([0.0] * 4), IDLE_COMMAND, "unknown")
+            self._publish([0.0] * 4, IDLE_COMMAND, "unknown")
             self._clamp_k = 1.0
             return
 
@@ -506,7 +496,7 @@ class SupervisorNode(Node):
             max(-1, min(1, rc[CH["actuator"]] or self._auto_actuator)),
             1 if (rc[CH["solenoid"]] or self._auto_solenoid) else 0,
         ]
-        self._publish(self._split_by_controller(wheel_rpm), command, mode)
+        self._publish(wheel_rpm, command, mode)
 
     def _autonomous(self, now: float, brake: int) -> tuple[float, float, float, int]:
         """Run one tick of the approach sequence.
@@ -527,6 +517,23 @@ class SupervisorNode(Node):
             if self.sequence.phase not in TERMINAL:
                 self.sequence.abort("brake pressed")
                 self.get_logger().warn("autonomous aborted: brake")
+            self._publish_phase(self.sequence.phase.value)
+            return 0.0, 0.0, 0.0, 0
+
+        if self.position_units == "unset":
+            # The drivers publish raw counts unless their own counts_per_rev is
+            # set, and counts taken for radians overstate travel enormously —
+            # ENTER would finish in one tick and the drill would fire at the
+            # entry point. Refuse to guess which it is.
+            if self.sequence.phase not in TERMINAL:
+                self.sequence.abort("wheel_position_units is unset")
+                self.get_logger().error(
+                    "autonomous refused: wheel_position_units is 'unset', so the "
+                    "entry distance cannot be trusted. Measure the encoders with "
+                    "examples/calibrate_counts_per_rev.py, then either set "
+                    "counts_per_rev on the drivers and put 'rad' here, or put "
+                    "'count' here with the measured counts_per_rev."
+                )
             self._publish_phase(self.sequence.phase.value)
             return 0.0, 0.0, 0.0, 0
 
@@ -632,12 +639,10 @@ class SupervisorNode(Node):
         return lift
 
     # ── output ──────────────────────────────────────────────────────────────
-    def _publish(self, per_controller: list[list[float]],
-                 command: list[int], mode: str) -> None:
-        for pub, values in zip(self.pub_drive, per_controller):
-            msg = Float64MultiArray()
-            msg.data = [float(v) for v in values]
-            pub.publish(msg)
+    def _publish(self, wheel_rpm: list[float], command: list[int], mode: str) -> None:
+        msg = Float64MultiArray()
+        msg.data = [float(v) for v in wheel_rpm]
+        self.pub_drive.publish(msg)
 
         cmd = Int32MultiArray()
         cmd.data = [int(v) for v in command]

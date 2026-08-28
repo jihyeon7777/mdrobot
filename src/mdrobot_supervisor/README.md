@@ -8,31 +8,37 @@ transmitter --RF--> STM32 board --> rc_bridge_node --> [ supervisor ]
                                          ^                   |
                     equipment  ~/command +                   | four wheel rpm
                                                              v
-                                        md1 (slave 1)   md2 (slave 2)   ttyUSB0
+                                                   mecanum_driver_node
+                                                             |
+                                              ttyUSB0 (one RS485 bus, 2 controllers)
 ```
+
+Bring the whole thing up with
+`ros2 launch mdrobot_supervisor bringup.launch.py`.
 
 ## Interface
 
 | | | |
 |---|---|---|
 | sub | `~/rc` | `std_msgs/Int32MultiArray` — the bridge's ten channels |
-| pub | `~/cmd_velocity_1`, `~/cmd_velocity_2` | `std_msgs/Float64MultiArray` — `[ch1_rpm, ch2_rpm]` per controller |
+| pub | `~/cmd_wheel_rpm` | `std_msgs/Float64MultiArray` — `[FL, FR, RL, RR]` motor rpm |
 | pub | `~/command` | `std_msgs/Int32MultiArray` — `[lift, brake, drill, actuator, solenoid]` |
 | pub | `~/mode` | `std_msgs/String` — base / mecanum / autonomous |
 | pub | `~/auto_phase` | `std_msgs/String` — sequence phase, empty outside autonomous |
 | sub | `~/plate_offset` | `geometry_msgs/Point` — from `mdrobot_plate_ocr` |
-| sub | `~/joint_states_1`, `~/joint_states_2` | `sensor_msgs/JointState` — wheel positions |
+| sub | `~/joint_states` | `sensor_msgs/JointState` — four wheel positions |
 | pub | `~/diagnostics` | `diagnostic_msgs/DiagnosticArray` |
 
-The launch file wires `~/rc` and `~/command` to `mdrobot_rc_bridge` and the two
-drive topics to `/md1` and `/md2`.
+The launch file wires `~/rc` and `~/command` to `mdrobot_rc_bridge` and the drive
+topics to `mecanum_driver_node`.
 
 ## Drive
 
-Four mecanum wheels on two dual-channel MD controllers. Steer and throttle
-become a body twist, the twist becomes four wheel speeds
-([kinematics.py](mdrobot_supervisor/kinematics.py)), and the wheel map splits
-those across the controllers.
+Four mecanum wheels. Steer and throttle become a body twist and the twist becomes
+four wheel speeds ([kinematics.py](mdrobot_supervisor/kinematics.py)), published
+as one vector. Which controller and channel each wheel hangs off belongs to
+`mecanum_driver_node` — both controllers share one RS485 bus, so exactly one node
+owns the port.
 
 The transmitter has two axes, so `vy` (strafe) is always 0 — there is no third
 axis to drive it until a mode assigns one.
@@ -70,6 +76,11 @@ the vehicle by hand and flips the switch; from there
 | `raise` | drives the actuator up into the hole | `auto_actuator_seconds` elapse |
 | `spray` | opens the solenoid; water goes through the hole | `auto_spray_seconds` elapse |
 | `done` | holds still | operator takes over |
+
+**`find_hole` onwards is off by default** (`auto_hole_stage: false`): the
+upward-facing camera is not fitted, so nothing publishes `~/hole_offset` and the
+sequence finishes at the drill. Turn it on when the camera and its detector
+exist.
 
 `abort` replaces any phase when a guard trips. `done` and `abort` are both
 terminal — the operator has to leave autonomous and come back, which is the
@@ -133,29 +144,28 @@ does guarantee:
 - **`limit_gating` is off**, because the switch polarity is unknown. A gate with
   the polarity backwards either blocks lift forever or never fires. Measure which
   value a *triggered* switch reports, set `limit_active_value`, then enable.
-- **`max_linear_x: 0.2` asks for 611 motor rpm against a 600 cap**, so full
-  throttle is always scaled to 0.98 and diagnostics sit at WARN. Both numbers are
-  from `mecanum.yaml` as-is.
-- **Nothing publishes `~/hole_offset` yet.** The upward-facing camera is not
-  fitted, so the hole detector does not exist. The sequence stops at `find_hole`
-  and times out until one is written. It needs to publish a
-  `geometry_msgs/Point` with `x`/`y` normalised to [-1, 1] against the frame.
+- **Nothing publishes `~/hole_offset` yet**, so `auto_hole_stage` is off and the
+  sequence ends at the drill. A detector needs to publish a `geometry_msgs/Point`
+  with `x`/`y` normalised to [-1, 1] against the frame.
 - **`auto_hole_gain_x/y` signs are unverified.** Which way the machine has to
   move to reduce an offset depends on how that camera ends up mounted. A wrong
   sign drives away from the hole until the timeout trips. Check on the bench.
-- **The drivers are currently publishing raw counts.** `dual.yaml` has
-  `counts_per_rev: [0.0, 0.0]`, which makes `motor_driver_node` publish
-  `joint_states` in counts, not radians. Taken as radians that is roughly a
-  76x overestimate of travel, so `enter` would finish instantly and the drill
-  would fire at the entry point. `odom_max_speed_factor` catches it and aborts,
-  but the fix is to measure the real value with
-  `examples/calibrate_counts_per_rev.py` and set it on the drivers.
+- **The encoders are not calibrated, so autonomous will not run.**
+  `wheel_position_units` starts at `unset` and autonomous refuses to arm: the
+  drive node publishes raw counts until its `counts_per_rev` is measured, and
+  counts taken for radians overstate travel by roughly 76x — `enter` would end in
+  a single tick and the drill would fire at the entry point. Measure with
+  `python3 examples/calibrate_counts_per_rev.py --type dual --port /dev/ttyUSB0`,
+  put the values in the drive node's `counts_per_rev`, then set
+  `wheel_position_units: rad` here. `odom_max_speed_factor` stays as a backstop.
 - **The LED is not wired.** The plate-recognition LED has nowhere to go: the
   board's downlink carries only lift, brake, drill, actuator and solenoid.
   `~/auto_phase` reports the state in the meantime.
 - The actuator is driven up for a fixed time and then released to 0 during the
   spray, rather than held against a stop. Whether it stays up on its own is not
   established, and the limit switches are wired to the lift, not to it.
-- The wheel map, geometry and gear ratio are copied from the untracked
+- The geometry, gear ratio and wheel map are copied from the untracked
   `mecanum.yaml`; the `mdrobot_mecanum` package it belonged to is no longer in
-  the repository. Confirm they still describe the machine.
+  the repository. Confirm they still describe the machine. `max_linear_x/y` are
+  0.19 rather than its 0.2, which asked for 611 motor rpm against the 600 cap.
+- No IMU. `enter` and `align_hole` both run open-loop on attitude.

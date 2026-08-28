@@ -6,9 +6,9 @@ them on the command line:
 Use a different parameter file with:
   ros2 launch mdrobot_supervisor supervisor.launch.py config:=/path/to/my.yaml
 
-This launches the decision layer only. It expects mdrobot_rc_bridge below it and
-two mdrobot_ros2_driver nodes (one per MD controller) above the RS485 bus, with
-the remappings wired to match.
+This launches the decision layer only. It expects mdrobot_rc_bridge and
+mdrobot_ros2_driver's mecanum_driver_node to be running. For the whole machine
+at once use mdrobot_supervisor's bringup.launch.py.
 """
 
 import os
@@ -41,10 +41,8 @@ def generate_launch_description() -> LaunchDescription:
         remappings=[
             ("~/rc", "/mdrobot_rc_bridge/channels"),
             ("~/command", "/mdrobot_rc_bridge/command"),
-            ("~/cmd_velocity_1", "/md1/cmd_velocity"),
-            ("~/cmd_velocity_2", "/md2/cmd_velocity"),
-            ("~/joint_states_1", "/md1/joint_states"),
-            ("~/joint_states_2", "/md2/joint_states"),
+            ("~/cmd_wheel_rpm", "/mdrobot_mecanum_driver/cmd_wheel_rpm"),
+            ("~/joint_states", "/mdrobot_mecanum_driver/joint_states"),
             ("~/plate_offset", "/mdrobot_plate_ocr/plate_offset"),
             # No node publishes this yet; the upward camera is not fitted.
             ("~/hole_offset", "/mdrobot_hole_detector/hole_offset"),

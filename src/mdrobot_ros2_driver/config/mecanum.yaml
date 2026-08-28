@@ -1,0 +1,28 @@
+# mdrobot_ros2_driver — mecanum_driver_node: four wheels, two controllers, ONE bus.
+#
+#   ros2 launch mdrobot_ros2_driver mecanum.launch.py
+#
+# Both controllers sit on the same serial port, so exactly one node opens it.
+/**:
+  ros__parameters:
+    port: /dev/ttyUSB0
+    baudrate: 19200
+    timeout: 0.3
+
+    # Where each wheel lives, in front_left, front_right, rear_left, rear_right
+    # order. From the repository's mecanum.yaml.
+    wheel_slave_ids: [1, 1, 2, 2]
+    wheel_channels: [1, 2, 2, 1]
+    joint_names: ['front_left', 'front_right', 'rear_left', 'rear_right']
+
+    # Counts per revolution of the MOTOR shaft, per wheel. Set these and
+    # joint_states carries radians; leave them 0.0 and it carries RAW COUNTS,
+    # which the supervisor refuses to dead-reckon with. Measure them:
+    #   python3 examples/calibrate_counts_per_rev.py --type dual --port /dev/ttyUSB0
+    counts_per_rev: [0.0, 0.0, 0.0, 0.0]
+
+    max_rpm: 600.0            # hard cap per wheel, applied before writing
+    command_timeout: 0.5      # s; stop the wheels if commands stop arriving (0 disables)
+    publish_rate: 20.0        # Hz; joint_states
+    diag_rate: 2.0            # Hz; diagnostics
+    auto_enable: true         # enable both controllers on startup
