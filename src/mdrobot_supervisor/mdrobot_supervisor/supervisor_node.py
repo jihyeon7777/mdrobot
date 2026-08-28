@@ -46,6 +46,13 @@ Parameters (see config/supervisor.yaml for the full annotated set):
                              'count' (with counts_per_rev). Autonomous refuses to
                              run while this is 'unset', because counts taken for
                              radians would end the blind entry in a single tick
+  lift_max_run (float=10.0)     seconds the lift may drive one way before it is
+                             stopped. 0 disables
+  actuator_max_run (float=8.0)  the same for the actuator. Neither has limit
+                             switches or feedback, so holding the switch parks
+                             them stalled against an end stop, and a stalled
+                             motor's current draw is enough to brown out a
+                             controller on this supply
   limit_gating (bool=False)  stop the lift at the limit switches. OFF because
                              the switches are not fitted yet; with it off nothing
                              knows where the travel ends and the carriage drives
@@ -168,6 +175,8 @@ class SupervisorNode(Node):
         self.declare_parameter("wheel_signs", [-1, 1, -1, 1])
         self.declare_parameter("lift_speed", 60)
         self.declare_parameter("lift_input", "speed")
+        self.declare_parameter("lift_max_run", 10.0)
+        self.declare_parameter("actuator_max_run", 8.0)
         self.declare_parameter("limit_gating", False)
         self.declare_parameter("limit_active_value", 1)
         self.declare_parameter("mode_names", ["base", "mecanum", "autonomous"])
@@ -241,6 +250,8 @@ class SupervisorNode(Node):
             raise ValueError(f"wheel_signs entries must be -1 or +1, got {self.wheel_signs}")
 
         self.lift_speed = int(self.get_parameter("lift_speed").value)
+        self.lift_max_run = float(self.get_parameter("lift_max_run").value)
+        self.actuator_max_run = float(self.get_parameter("actuator_max_run").value)
         self.lift_input = str(self.get_parameter("lift_input").value).lower()
         if self.lift_input not in ("speed", "tristate", "pwm"):
             raise ValueError(
@@ -333,6 +344,11 @@ class SupervisorNode(Node):
         self._sticks_bad = False
         self._at_top = False
         self._at_bottom = False
+        # Per-output run guards: start time, direction, and whether the output is
+        # blocked until the operator lets go.
+        self._run_since: dict[str, float] = {}
+        self._run_dir: dict[str, int] = {}
+        self._run_blocked: dict[str, bool] = {}
         self._armed = not self.require_neutral_start
 
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._on_tick)
@@ -437,6 +453,46 @@ class SupervisorNode(Node):
             )
             return False
         return True
+
+    def _run_guard(self, name: str, value: int, limit: float, now: float) -> int:
+        """Stop an output that has been driving one way for too long.
+
+        Neither the lift nor the actuator has limit switches or position
+        feedback, so holding the switch drives them into their end stop and
+        leaves them stalled there. A stalled motor pulls far more current than a
+        moving one, and this machine already sits at 11.5 V — the sag is enough
+        to brown out a motor controller, which is what the comms dropping out
+        during a run looks like.
+
+        Once blocked the output stays blocked until the operator returns the
+        switch to neutral, so a guard that trips cannot be ridden through by
+        holding the switch harder.
+        """
+        if limit <= 0:
+            return value
+        direction = (value > 0) - (value < 0)
+        if direction == 0:
+            if self._run_blocked.get(name):
+                self.get_logger().info(f"{name} released; run guard cleared")
+            self._run_blocked[name] = False
+            self._run_dir[name] = 0
+            return 0
+        if self._run_blocked.get(name):
+            return 0
+        if self._run_dir.get(name) != direction:
+            # A genuine change of direction restarts the clock.
+            self._run_dir[name] = direction
+            self._run_since[name] = now
+            return value
+        if now - self._run_since.get(name, now) > limit:
+            self._run_blocked[name] = True
+            self.get_logger().warn(
+                f"{name} has been driving {'up' if direction > 0 else 'down'} for "
+                f"{limit:.0f} s and is probably against its end stop. Stopping it "
+                f"— return the switch to neutral to use it again."
+            )
+            return 0
+        return value
 
     def _at_neutral(self, rc: list[int]) -> bool:
         """Both sticks resting at centre, within the deadband."""
@@ -574,16 +630,18 @@ class SupervisorNode(Node):
         wheel_rpm, k = self._wheel_rpm(vx, vy, wz)
         self._clamp_k = k
 
-        lift = self._gated_lift(rc)
+        lift = self._run_guard("lift", self._gated_lift(rc), self.lift_max_run, now)
+        # The operator can always drive the actuator; the sequence takes it only
+        # when the operator has left it alone.
+        actuator = max(-1, min(1, rc[CH["actuator"]] or self._auto_actuator))
+        actuator = self._run_guard("actuator", actuator, self.actuator_max_run, now)
         command = [
             lift,
             brake,
             # The operator's drill switch and the sequence's request are both
             # honoured; either one alone turns it on.
             1 if (rc[CH["drill"]] or auto_drill) else 0,
-            # The operator can always drive the actuator; the sequence takes it
-            # only when the operator has left it alone.
-            max(-1, min(1, rc[CH["actuator"]] or self._auto_actuator)),
+            actuator,
             1 if (rc[CH["solenoid"]] or self._auto_solenoid) else 0,
         ]
         self._publish(wheel_rpm, command, mode)

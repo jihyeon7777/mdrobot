@@ -78,6 +78,17 @@
     # reporting 60). 'tristate' (-1/0/+1) and 'pwm' are the other options.
     lift_input: speed
 
+    # Seconds the lift / actuator may drive one way before the node stops them.
+    # Neither has limit switches or position feedback, so holding the switch
+    # parks them stalled against an end stop. A stalled motor draws far more
+    # current than a moving one, and this machine already sits at 11.5 V — the
+    # sag is enough to brown out a motor controller, which is what the comms
+    # dropping out mid-run looks like. Once tripped the output stays stopped
+    # until the switch returns to neutral. Set 0 to disable.
+    # Tune these to just over one full travel.
+    lift_max_run: 10.0
+    actuator_max_run: 8.0
+
     # Limit switches stop the lift at each end. OFF because they are NOT FITTED
     # yet — with nothing to stop it the carriage runs into its hard stop and
     # stalls there, which is what the controller cutting out and the load
