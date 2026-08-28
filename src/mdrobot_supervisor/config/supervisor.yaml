@@ -20,6 +20,12 @@
     pwm_mid: 1500
     pwm_max: 2000
     deadband: 15            # us around pwm_mid that reads as exactly 0.0
+    # How far outside pwm_min..pwm_max a stick may read and still be believed.
+    # Beyond that the node STOPS rather than driving. This is not fussiness:
+    # normalising an out-of-range value and clamping it yields full deflection,
+    # so a stick reading 42819 became +1.0 and the wheels went to full speed the
+    # moment the drive node stayed up long enough to write it.
+    pwm_tolerance: 200
     invert_steer: false
     invert_throttle: false
 

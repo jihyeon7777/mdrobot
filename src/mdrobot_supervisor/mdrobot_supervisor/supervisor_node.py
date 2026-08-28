@@ -148,6 +148,7 @@ class SupervisorNode(Node):
         self.declare_parameter("pwm_mid", 1500)
         self.declare_parameter("pwm_max", 2000)
         self.declare_parameter("deadband", 15)
+        self.declare_parameter("pwm_tolerance", 200)
         self.declare_parameter("invert_steer", False)
         self.declare_parameter("invert_throttle", False)
         self.declare_parameter("max_linear_x", 0.2)
@@ -201,6 +202,9 @@ class SupervisorNode(Node):
         self.pwm_mid = int(self.get_parameter("pwm_mid").value)
         self.pwm_max = int(self.get_parameter("pwm_max").value)
         self.deadband = int(self.get_parameter("deadband").value)
+        self.pwm_tolerance = int(self.get_parameter("pwm_tolerance").value)
+        if self.pwm_tolerance < 0:
+            raise ValueError(f"pwm_tolerance cannot be negative, got {self.pwm_tolerance}")
         if not self.pwm_min < self.pwm_mid < self.pwm_max:
             raise ValueError(
                 f"need pwm_min < pwm_mid < pwm_max, got "
@@ -319,6 +323,7 @@ class SupervisorNode(Node):
         self._last_phase = ""
         self._auto_actuator = 0
         self._auto_solenoid = 0
+        self._sticks_bad = False
 
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._on_tick)
         self.create_timer(0.5, self._on_diag)
@@ -395,8 +400,40 @@ class SupervisorNode(Node):
         mean_motor_rad = total / 4.0
         return mean_motor_rad / self.gear_ratio * self.geom.wheel_radius
 
+    def _sticks_usable(self, rc: list[int]) -> bool:
+        """Are the stick channels carrying something that could be a pulse width?
+
+        Out-of-range must never mean full deflection. Normalising, say, 42819 as
+        a pulse width and clamping the result gives exactly +1.0 — the machine
+        reads a value it cannot interpret and drives away at full speed. The
+        board has already been seen changing what a channel carries (lift turned
+        out to be a speed, not a switch), so the range is checked rather than
+        assumed.
+        """
+        low = self.pwm_min - self.pwm_tolerance
+        high = self.pwm_max + self.pwm_tolerance
+        bad = [
+            f"{CHANNEL_NAMES[c]}={rc[c]}"
+            for c in (CH["steer"], CH["throttle"])
+            if not low <= rc[c] <= high
+        ]
+        if bad:
+            self.get_logger().error(
+                f"stick channels outside {low}..{high}: {', '.join(bad)}. "
+                f"Refusing to drive — an unreadable stick must not become full "
+                f"deflection. Check what the board is sending with "
+                f"examples/read_rc_bridge.py.",
+                throttle_duration_sec=2.0,
+            )
+            return False
+        return True
+
     def _axis(self, value: int, invert: bool) -> float:
-        """Pulse width in microseconds -> -1..+1, with a deadband at centre."""
+        """Pulse width in microseconds -> -1..+1, with a deadband at centre.
+
+        Callers must have checked the value with _sticks_usable first: the clamp
+        here turns anything far out of range into full deflection.
+        """
         if abs(value - self.pwm_mid) <= self.deadband:
             out = 0.0
         elif value >= self.pwm_mid:
@@ -463,6 +500,21 @@ class SupervisorNode(Node):
         if self._stopped:
             self._stopped = False
             self.get_logger().info("~/rc live; resuming")
+
+        if not self._sticks_usable(rc):
+            # Same response as a lost link: stop, and let go of the equipment.
+            # A frame we cannot read is not one to run a drill from either.
+            if self._was_autonomous:
+                self.sequence.reset()
+                self._was_autonomous = False
+                self._publish_phase("")
+            self._sticks_bad = True
+            self._publish([0.0] * 4, IDLE_COMMAND, "unusable")
+            self._clamp_k = 1.0
+            return
+        if self._sticks_bad:
+            self._sticks_bad = False
+            self.get_logger().info("stick channels back in range; resuming")
 
         mode = self._mode_name(rc[CH["mode"]])
         brake = 1 if rc[CH["brake"]] else 0
@@ -685,6 +737,7 @@ class SupervisorNode(Node):
             KeyValue(key="mode", value=self._last_mode or "unknown"),
             KeyValue(key="clamp_k", value=f"{self._clamp_k:.3f}"),
             KeyValue(key="rc_rejected", value=str(self._rejected)),
+            KeyValue(key="sticks_usable", value=str(not self._sticks_bad)),
             KeyValue(key="limit_gating", value=str(self.limit_gating)),
             KeyValue(key="roller_layout", value=self.geom.roller_layout),
             KeyValue(key="auto_phase", value=self._last_phase or "-"),
