@@ -34,3 +34,14 @@
     publish_rate: 5.0         # Hz; joint_states
     diag_rate: 2.0            # Hz; diagnostics
     auto_enable: true         # enable both controllers on startup
+
+    # One controller failing must not take the other with it. After this many
+    # consecutive failures it is declared unresponsive and retried only every
+    # offline_retry seconds: a failed transaction costs a full serial timeout,
+    # and hammering a dead controller every tick starves the live one.
+    offline_after: 3
+    offline_retry: 1.0
+    # Supply voltage into diagnostics. A controller browning out under motor
+    # current stops answering and needs a power cycle, which looks identical to
+    # a bus fault from software — this is what tells the two apart.
+    voltage_rate: 1.0         # Hz; 0 disables

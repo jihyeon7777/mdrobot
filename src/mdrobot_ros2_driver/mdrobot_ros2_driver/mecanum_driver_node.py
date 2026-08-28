@@ -31,6 +31,12 @@ Parameters:
   publish_rate (float=5.0)      Hz, joint_states
   diag_rate (float=2.0)         Hz, diagnostics
   auto_enable (bool=True)       enable both controllers on startup
+  offline_after (int=3)         consecutive failures before a controller is
+                                declared unresponsive and backed off
+  offline_retry (float=1.0)     s between retries while it is unresponsive
+  voltage_rate (float=1.0)      Hz; supply voltage sampled into diagnostics. A
+                                controller browning out under motor current
+                                looks exactly like a bus fault from up here
 
 Subscriptions:
   ~/cmd_wheel_rpm (std_msgs/Float64MultiArray)
@@ -55,6 +61,12 @@ backlog grew until the wheels were answering a stick position several seconds
 old. Dropping joint_states to 5 Hz brings it inside budget, and latching the
 command instead of writing it from the callback bounds the latency whatever the
 bus is doing.
+
+One controller failing does not take the other down. Each is tracked
+separately, and after offline_after consecutive failures it is retried only
+every offline_retry seconds instead of every tick — a failed transaction costs
+a full serial timeout, and two of those per write would starve the controller
+that is still answering.
 
 Safety: with command_timeout > 0 the wheels stop when commands stop arriving.
 Bus access is serialised on a single-threaded executor, so reads and writes
@@ -111,6 +123,9 @@ class MecanumDriverNode(Node):
         self.declare_parameter("publish_rate", 5.0)
         self.declare_parameter("diag_rate", 2.0)
         self.declare_parameter("auto_enable", True)
+        self.declare_parameter("offline_after", 3)
+        self.declare_parameter("offline_retry", 1.0)
+        self.declare_parameter("voltage_rate", 1.0)
 
         self.wheel_slave_ids = [int(v) for v in self.get_parameter("wheel_slave_ids").value]
         self.wheel_channels = [int(v) for v in self.get_parameter("wheel_channels").value]
@@ -145,11 +160,24 @@ class MecanumDriverNode(Node):
             for slave in self.controller_ids
         }
 
+        self.offline_after = int(self.get_parameter("offline_after").value)
+        self.offline_retry = float(self.get_parameter("offline_retry").value)
+        self.voltage_rate = float(self.get_parameter("voltage_rate").value)
+
         self._command = [0.0] * 4
         self._command_wall = 0.0
         self._stopped = True
         self._errors = 0
         self._last_positions: list[float] | None = None
+        # Per-controller health. A controller that stops answering must not be
+        # hammered every tick: each failed transaction costs a full serial
+        # timeout, and two of those per write would starve the one still working.
+        self._fails = {slave: 0 for slave in self.controller_ids}
+        self._offline = {slave: False for slave in self.controller_ids}
+        self._retry_at = {slave: 0.0 for slave in self.controller_ids}
+        self._errors_by_slave = {slave: 0 for slave in self.controller_ids}
+        self._voltage = {slave: None for slave in self.controller_ids}
+        self._voltage_mark = 0.0
 
         # Depth 1: the bus is slower than the command stream, and a queue of
         # stale rpm values is worse than none — only the newest matters.
@@ -208,17 +236,47 @@ class MecanumDriverNode(Node):
             raise ValueError(f"max_rpm must be positive, got {self.max_rpm}")
 
     # ── bus helpers ─────────────────────────────────────────────────────────
+    def _skip(self, slave: int, now: float) -> bool:
+        """True while an unresponsive controller is in its retry backoff."""
+        return self._offline[slave] and now < self._retry_at[slave]
+
+    def _note_ok(self, slave: int) -> None:
+        if self._offline[slave]:
+            self.get_logger().info(f"controller {slave} answering again")
+        self._fails[slave] = 0
+        self._offline[slave] = False
+
+    def _note_fail(self, slave: int, what: str, exc: Exception) -> None:
+        self._errors += 1
+        self._errors_by_slave[slave] += 1
+        self._fails[slave] += 1
+        self._retry_at[slave] = time.monotonic() + self.offline_retry
+        if not self._offline[slave] and self._fails[slave] >= self.offline_after:
+            self._offline[slave] = True
+            self.get_logger().error(
+                f"controller {slave} unresponsive after {self._fails[slave]} "
+                f"failures ({what}: {type(exc).__name__}); retrying every "
+                f"{self.offline_retry:.1f} s. The other controller keeps running."
+            )
+        else:
+            self.get_logger().warn(
+                f"{what} failed on controller {slave}: {type(exc).__name__}: {exc}",
+                throttle_duration_sec=1.0,
+            )
+
     def _for_each(self, action, what: str) -> bool:
         ok = True
+        now = time.monotonic()
         for slave, driver in self.drivers.items():
+            if self._skip(slave, now):
+                ok = False
+                continue
             try:
                 action(driver)
+                self._note_ok(slave)
             except BUS_ERRORS as exc:
                 ok = False
-                self._errors += 1
-                self.get_logger().error(
-                    f"{what} failed on controller {slave}: {type(exc).__name__}: {exc}"
-                )
+                self._note_fail(slave, what, exc)
         return ok
 
     def _make_service(self, name: str, action) -> None:
@@ -261,20 +319,19 @@ class MecanumDriverNode(Node):
         be one transaction. It is untested here; verify it on a bench with the
         wheels off the ground before trusting it.
         """
+        now = time.monotonic()
         for slave, driver in self.drivers.items():
+            if self._skip(slave, now):
+                continue
             pair = [0, 0]
             for i in range(4):
                 if self.wheel_slave_ids[i] == slave:
                     pair[self.wheel_channels[i] - 1] = int(round(wheel_rpm[i]))
             try:
                 driver.set_velocities(pair[0], pair[1])
+                self._note_ok(slave)
             except BUS_ERRORS as exc:
-                self._errors += 1
-                self.get_logger().error(
-                    f"velocity write failed on controller {slave}: "
-                    f"{type(exc).__name__}: {exc}",
-                    throttle_duration_sec=1.0,
-                )
+                self._note_fail(slave, "velocity write", exc)
 
     def _on_write_tick(self) -> None:
         """Push the latched command onto the bus at a rate the bus can carry."""
@@ -298,16 +355,15 @@ class MecanumDriverNode(Node):
         """(positions, rpms) per wheel, straight off the controllers."""
         counts: dict[int, tuple[int, int]] = {}
         rpms: dict[int, tuple[int, int]] = {}
+        now = time.monotonic()
         for slave, driver in self.drivers.items():
+            if self._skip(slave, now):
+                return None
             try:
                 mon = driver.read_monitor()
+                self._note_ok(slave)
             except BUS_ERRORS as exc:
-                self._errors += 1
-                self.get_logger().warn(
-                    f"monitor read failed on controller {slave}: "
-                    f"{type(exc).__name__}: {exc}",
-                    throttle_duration_sec=2.0,
-                )
+                self._note_fail(slave, "monitor read", exc)
                 return None
             counts[slave] = (mon.motor1.position, mon.motor2.position)
             rpms[slave] = (mon.motor1.speed_rpm, mon.motor2.speed_rpm)
@@ -341,11 +397,39 @@ class MecanumDriverNode(Node):
         except Exception:  # noqa: BLE001 - invalid context during shutdown
             pass
 
+    def _read_voltages(self) -> None:
+        """Sample supply voltage per controller, rate-limited to stay off the bus.
+
+        A controller that browns out under motor current stops answering and
+        needs its power cycled — exactly what a bus fault looks like from here.
+        Logging the voltage each controller reports is what separates the two.
+        """
+        if self.voltage_rate <= 0:
+            return
+        now = time.monotonic()
+        if now - self._voltage_mark < 1.0 / self.voltage_rate:
+            return
+        self._voltage_mark = now
+        for slave, driver in self.drivers.items():
+            if self._skip(slave, now):
+                continue
+            try:
+                self._voltage[slave] = driver.get_voltage()
+                self._note_ok(slave)
+            except BUS_ERRORS as exc:
+                self._note_fail(slave, "voltage read", exc)
+
     def _publish_diag(self) -> None:
+        self._read_voltages()
+        offline = [s for s in self.controller_ids if self._offline[s]]
+
         status = DiagnosticStatus()
         status.name = "mdrobot_mecanum_driver: bus"
         status.hardware_id = str(self.get_parameter("port").value)
-        if self._errors:
+        if offline:
+            status.level = DiagnosticStatus.ERROR
+            status.message = f"controller(s) {offline} unresponsive"
+        elif self._errors:
             status.level = DiagnosticStatus.WARN
             status.message = f"{self._errors} bus errors so far"
         elif self._stopped:
@@ -359,6 +443,16 @@ class MecanumDriverNode(Node):
             KeyValue(key="units", value="rad" if self.publish_si else "count"),
             KeyValue(key="command", value=",".join(f"{v:.0f}" for v in self._command)),
         ]
+        for slave in self.controller_ids:
+            volts = self._voltage[slave]
+            status.values += [
+                KeyValue(key=f"ctrl{slave}_state",
+                         value="OFFLINE" if self._offline[slave] else "ok"),
+                KeyValue(key=f"ctrl{slave}_errors",
+                         value=str(self._errors_by_slave[slave])),
+                KeyValue(key=f"ctrl{slave}_volts",
+                         value="?" if volts is None else f"{volts:.1f}"),
+            ]
         if self._last_positions is not None:
             status.values += [
                 KeyValue(key=n, value=f"{p:.1f}")
