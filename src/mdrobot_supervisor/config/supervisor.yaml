@@ -62,7 +62,14 @@
     # sign = +1 when a POSITIVE rpm drives that wheel FORWARD, in front_left,
     # front_right, rear_left, rear_right order. Which controller and channel each
     # wheel hangs off belongs to mecanum_driver_node, not here.
-    wheel_signs: [-1, 1, -1, 1]
+    #
+    # Flipped from [-1, 1, -1, 1] after the controllers were swapped front to
+    # rear: forward came out as reverse. Negating all four reverses every motion
+    # together, so yaw and strafe flip with it — which is right if the swap put
+    # each wheel on the opposite side. If forward is now correct but LEFT and
+    # RIGHT are backwards, put this back and set invert_throttle: true instead,
+    # which flips forward/back alone.
+    wheel_signs: [1, -1, 1, -1]
 
     # ── equipment ──────────────────────────────────────────────────────────
     lift_speed: 60          # what a full lift request commands (the board takes -60..60)
