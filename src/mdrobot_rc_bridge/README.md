@@ -52,6 +52,25 @@ ignored.
 | pub | `~/diagnostics` | `diagnostic_msgs/DiagnosticArray` — link state, rate, error counts |
 | sub | `~/command` | `std_msgs/Int32MultiArray` — `[lift, brake, drill, actuator, solenoid]` |
 
+### Command ranges
+
+| output | range | |
+|---|---|---|
+| `lift` | -60..60 | signed speed of the up/down motor |
+| `brake` | 0/1 | |
+| `drill` | 0/1 | |
+| `actuator` | -1..1 | **unconfirmed** — retract/stop/extend is the usual shape, not verified against the firmware |
+| `solenoid` | 0/1 | |
+
+Values outside the range are clamped, not forwarded — this link ends at a drill
+and a valve. Adjust with `command_min` / `command_max`.
+
+### Modes
+
+The operator's three-position `mode` channel selects base / mecanum /
+autonomous. The bridge only reports its raw value; acting on it belongs to the
+decision layer, which does not exist yet.
+
 Parameters live in [config/rc_bridge.yaml](config/rc_bridge.yaml).
 
 ## Run
@@ -73,10 +92,14 @@ python3 examples/read_rc_bridge.py --map    # per-channel range
   The other eight channels sat at their idle values throughout the capture this
   was written from, so their ranges are unverified — check with `--map` before
   adding any of them to `axis_channels`.
-- `mode` idles at `-1`, which does not look like one of its three positions.
-- The downlink terminator is a guess (CRLF, matching the uplink) and the value
-  range each of the five outputs expects is unknown — `lift` in particular could
-  be a signed speed or a three-way -1/0/1. Confirm both against the firmware.
+- `mode` idles at `-1`, which is none of its three positions — probably "no
+  reading yet". Confirm what the three positions report.
+- The `actuator` range is unconfirmed; every other output range is.
+- The downlink terminator is set to CRLF to match what the board emits. Which
+  terminator its parser expects was never confirmed — switch `terminator` to
+  `lf` or `cr` if commands are ignored.
+- The decision layer is not written yet: nothing currently turns operator input
+  into `~/command`, or splits drive off to the MD controller.
 - The board was seen dropping off the USB bus and re-enumerating during early
   bring-up. The reader reopens it by its by-id path and counts the event in
   `reconnects`; a rising count there points at cabling or power.

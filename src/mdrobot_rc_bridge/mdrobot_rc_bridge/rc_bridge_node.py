@@ -44,13 +44,22 @@ Downlink parameters:
                               if commands are ignored
   send_on_command (bool=True) also send the instant a ~/command arrives, instead
                               of waiting for the next command_rate tick
+  command_min/command_max (int[]) per-output range the board accepts. Anything
+                              outside is clamped, not forwarded — this link ends
+                              at a drill and a valve. Defaults:
+                                lift     -60..60  signed speed
+                                brake      0..1
+                                drill      0..1
+                                actuator  -1..1   UNCONFIRMED, see README
+                                solenoid   0..1
 
 Subscriptions:
   ~/command (std_msgs/Int32MultiArray)
       data = [lift, brake, drill, actuator, solenoid]
-      Sent to the board verbatim as "lift,brake,drill,actuator,solenoid,checksum"
-      where checksum is their sum. A message of the wrong length is rejected and
-      the previous command stays in force.
+      Sent to the board as "lift,brake,drill,actuator,solenoid,checksum" where
+      checksum is their sum. Values are clamped to command_min/command_max. A
+      message of the wrong length is rejected and the previous command stays in
+      force.
 
 Publishers:
   ~/channels (std_msgs/Int32MultiArray)
@@ -95,6 +104,8 @@ from std_msgs.msg import Int32MultiArray, MultiArrayDimension
 
 from mdrobot_rc_bridge.rc_reader import (
     CHANNEL_NAMES,
+    COMMAND_MAX,
+    COMMAND_MIN,
     COMMAND_NAMES,
     NUM_CHANNELS,
     NUM_COMMANDS,
@@ -127,6 +138,8 @@ class RcBridgeNode(Node):
         self.declare_parameter("idle_command", [0] * NUM_COMMANDS)
         self.declare_parameter("terminator", "crlf")
         self.declare_parameter("send_on_command", True)
+        self.declare_parameter("command_min", list(COMMAND_MIN))
+        self.declare_parameter("command_max", list(COMMAND_MAX))
 
         port = str(self.get_parameter("port").value) or None
         self.frame_id = str(self.get_parameter("frame_id").value)
@@ -158,12 +171,32 @@ class RcBridgeNode(Node):
             )
         self.command_timeout = float(self.get_parameter("command_timeout").value)
         self.send_on_command = bool(self.get_parameter("send_on_command").value)
+        self.command_min = [int(v) for v in self.get_parameter("command_min").value]
+        self.command_max = [int(v) for v in self.get_parameter("command_max").value]
+        for name, values in (("command_min", self.command_min),
+                             ("command_max", self.command_max)):
+            if len(values) != NUM_COMMANDS:
+                raise ValueError(
+                    f"{name} needs {NUM_COMMANDS} values {COMMAND_NAMES}, got {values}"
+                )
+        for i, (lo, hi) in enumerate(zip(self.command_min, self.command_max)):
+            if lo > hi:
+                raise ValueError(
+                    f"command_min[{i}] ({COMMAND_NAMES[i]}) is {lo}, above command_max {hi}"
+                )
+
         self.idle_command = [int(v) for v in self.get_parameter("idle_command").value]
         if len(self.idle_command) != NUM_COMMANDS:
             raise ValueError(
                 f"idle_command needs {NUM_COMMANDS} values {COMMAND_NAMES}, "
                 f"got {self.idle_command}"
             )
+        for i, v in enumerate(self.idle_command):
+            if not self.command_min[i] <= v <= self.command_max[i]:
+                raise ValueError(
+                    f"idle_command[{i}] ({COMMAND_NAMES[i]}) is {v}, outside "
+                    f"{self.command_min[i]}..{self.command_max[i]}"
+                )
 
         self.pub_channels = self.create_publisher(Int32MultiArray, "~/channels", 10)
         self.pub_joy = self.create_publisher(Joy, "~/joy", 10)
@@ -186,6 +219,7 @@ class RcBridgeNode(Node):
         self._command_wall = 0.0
         self._watchdog_held = False
         self._rejected = 0
+        self._clamped = 0
 
         self.reader = RcBridgeReader(port=port,
                                      baudrate=int(self.get_parameter("baudrate").value),
@@ -278,8 +312,8 @@ class RcBridgeNode(Node):
                 throttle_duration_sec=2.0,
             )
             return  # keep the previous command rather than acting on a bad one
+        command = self._clamp(list(msg.data))
         with self._lock:
-            command = [int(v) for v in msg.data]
             self._command = command
             self._command_wall = time.monotonic()
             was_held = self._watchdog_held
@@ -307,6 +341,26 @@ class RcBridgeNode(Node):
                 self._command = list(self.idle_command)
             command = list(self._command)
         self.reader.send(command)
+
+    def _clamp(self, values: list) -> list[int]:
+        """Hold every output inside the range the board accepts.
+
+        Out-of-range means a bug upstream, and this link ends at a drill and a
+        valve, so the value is clamped instead of forwarded.
+        """
+        out, clipped = [], []
+        for i, raw in enumerate(values):
+            v = max(self.command_min[i], min(self.command_max[i], int(raw)))
+            if v != int(raw):
+                clipped.append(f"{COMMAND_NAMES[i]} {int(raw)}->{v}")
+            out.append(v)
+        if clipped:
+            self._clamped += 1
+            self.get_logger().warn(
+                "~/command out of range, clamped: " + ", ".join(clipped),
+                throttle_duration_sec=2.0,
+            )
+        return out
 
     def _on_diag(self) -> None:
         now = time.monotonic()
@@ -346,6 +400,7 @@ class RcBridgeNode(Node):
             KeyValue(key="commands_sent", value=str(stats.sent)),
             KeyValue(key="send_errors", value=str(stats.send_errors)),
             KeyValue(key="commands_rejected", value=str(self._rejected)),
+            KeyValue(key="commands_clamped", value=str(self._clamped)),
             KeyValue(key="watchdog_held", value=str(held)),
             KeyValue(key="command", value=",".join(str(v) for v in command)),
         ]

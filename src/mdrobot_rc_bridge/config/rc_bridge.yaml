@@ -33,8 +33,14 @@
     command_rate: 50.0        # Hz; the last command is resent at this rate
     command_timeout: 0.5      # s without ~/command before idle_command takes over (0 disables)
     idle_command: [0, 0, 0, 0, 0]   # startup + watchdog value: everything off
+    # Range each output accepts; anything outside is clamped before it reaches
+    # the hardware. Order: lift, brake, drill, actuator, solenoid.
+    #   lift      signed speed, confirmed -60..+60
+    #   actuator  UNCONFIRMED -- -1/0/+1 is the usual retract/stop/extend shape,
+    #             but the firmware was never checked. Verify before trusting it.
+    command_min: [-60, 0, 0, -1, 0]
+    command_max: [ 60, 1, 1,  1, 1]
     send_on_command: true     # also send the moment a ~/command arrives
-    # Line ending the board's parser expects: crlf | lf | cr. The board *emits*
-    # CRLF; what it accepts was never confirmed, so try lf or cr if commands are
-    # ignored.
+    # Line ending the board's parser expects: crlf | lf | cr. Set to match what
+    # the board emits; switch to lf or cr if commands are ignored.
     terminator: crlf

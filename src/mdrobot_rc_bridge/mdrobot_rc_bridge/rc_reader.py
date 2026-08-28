@@ -73,6 +73,32 @@ COMMAND_NAMES = (
 )
 NUM_COMMANDS = len(COMMAND_NAMES)
 
+# What each output accepts, as (min, max). The board is the authority here; a
+# value outside its range is a bug in the layer above, so the node clamps rather
+# than forwarding it to a drill or a valve.
+#   lift      signed speed, confirmed -60..+60
+#   brake     confirmed on/off
+#   drill     confirmed on/off
+#   actuator  UNCONFIRMED. -1/0/+1 is the usual retract/stop/extend shape for a
+#             linear actuator, but the firmware was never checked -- verify it
+#             before trusting this range.
+#   solenoid  confirmed on/off
+COMMAND_LIMITS = {
+    "lift": (-60, 60),
+    "brake": (0, 1),
+    "drill": (0, 1),
+    "actuator": (-1, 1),
+    "solenoid": (0, 1),
+}
+COMMAND_MIN = tuple(COMMAND_LIMITS[n][0] for n in COMMAND_NAMES)
+COMMAND_MAX = tuple(COMMAND_LIMITS[n][1] for n in COMMAND_NAMES)
+
+# Uplink mode channel (f4): the operator's three-position switch.
+MODE_BASE = "base"
+MODE_MECANUM = "mecanum"
+MODE_AUTONOMOUS = "autonomous"
+MODE_NAMES = (MODE_BASE, MODE_MECANUM, MODE_AUTONOMOUS)
+
 # The board's firmware emits CRLF; which terminator its *parser* expects was
 # never established, so it stays configurable. Try "\n" or "\r" if the board
 # ignores commands sent with the default.
