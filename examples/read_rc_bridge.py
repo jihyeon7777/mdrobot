@@ -10,15 +10,21 @@ Wire format (confirmed against 6044 captured frames):
     f0..f9  ten signed integer channels
     f10     checksum == sum(f0..f9)
 
-Idle line: 1500,1500,0,0,-1,0,0,0,0,0,2999
-    f0, f1  sit at ~1500 with +/-1 jitter -> RC pulse width in microseconds
-    f4      constant -1, most likely a link/failsafe status flag
-    others  constant 0
+Channel map (from the transmitter layout):
+    f0  steer       left / right
+    f1  throttle    forward / back
+    f2  lift        up / down
+    f3  brake
+    f4  mode        3-position switch
+    f5  drill       drill motor
+    f6  actuator
+    f7  solenoid    solenoid valve
+    f8  limit_up    upper limit switch
+    f9  limit_down  lower limit switch
 
-The channel-to-control mapping is NOT established yet: in an 86 s capture no
-field moved, so either the sticks were not touched or the RC link was down.
-Run this script with --map, move every stick and switch, and the summary at
-exit names the fields that actually responded.
+Idle line: 1500,1500,0,0,-1,0,0,0,0,0,2999 — the two stick axes rest at ~1500
+(RC pulse width in microseconds, +/-1 jitter) and everything else sits at its
+inactive value. Run with --map to see the real range of each channel.
 
 Prefer the by-id path over /dev/ttyACM0 — the FTDI motor-controller port shares
 the same numbering space and the two can swap on reboot.
@@ -46,6 +52,21 @@ PORT_GLOB = "/dev/serial/by-id/*STM32_RC_Telemetry_Bridge*"
 BAUDRATE = 115200
 NUM_CHANNELS = 10  # f0..f9; f10 is the checksum on top of these
 
+# Field order as the bridge emits it. Index == position in the CSV line.
+CHANNEL_NAMES = (
+    "steer",       # f0  left / right
+    "throttle",    # f1  forward / back
+    "lift",        # f2  up / down
+    "brake",       # f3
+    "mode",        # f4  3-position switch
+    "drill",       # f5  drill motor
+    "actuator",    # f6
+    "solenoid",    # f7  solenoid valve
+    "limit_up",    # f8  upper limit switch
+    "limit_down",  # f9  lower limit switch
+)
+assert len(CHANNEL_NAMES) == NUM_CHANNELS
+
 
 class RcBridgeError(Exception):
     """No bridge port could be found."""
@@ -66,11 +87,22 @@ def find_port(glob_pattern: str = PORT_GLOB) -> str:
 class RcFrame:
     """One decoded, checksum-verified line."""
 
-    channels: tuple[int, ...]  # f0..f9
+    channels: tuple[int, ...]  # f0..f9, in CHANNEL_NAMES order
     timestamp: float  # time.monotonic() when the line was completed
 
+    def __getattr__(self, name: str) -> int:
+        # Let frame.throttle stand in for frame.channels[1]. Only reached for
+        # attributes the dataclass itself does not define.
+        try:
+            return self.channels[CHANNEL_NAMES.index(name)]
+        except ValueError:
+            raise AttributeError(name) from None
+
+    def as_dict(self) -> dict[str, int]:
+        return dict(zip(CHANNEL_NAMES, self.channels))
+
     def __str__(self) -> str:
-        return " ".join(f"{v:>6d}" for v in self.channels)
+        return "  ".join(f"{v:>10d}" for v in self.channels)
 
 
 @dataclass
@@ -251,6 +283,8 @@ def main() -> int:
         print("mapping : move every stick and switch through its full range, "
               "then Ctrl-C (or wait for --seconds)")
     print()
+    if not args.raw:
+        print("  ".join(f"{n:>10s}" for n in CHANNEL_NAMES))
 
     lo = [None] * NUM_CHANNELS
     hi = [None] * NUM_CHANNELS
@@ -304,12 +338,14 @@ def main() -> int:
             tag = "  <-- MOVED" if span > 5 else ""
             if span > 5:
                 moved.append(i)
-            print(f"  f{i:<2d} min={lo[i]:<7d} max={hi[i]:<7d} span={span:<7d}{tag}")
+            print(f"  f{i:<2d} {CHANNEL_NAMES[i]:<11s} min={lo[i]:<7d} "
+                  f"max={hi[i]:<7d} span={span:<7d}{tag}")
         if moved:
-            print(f"\nresponding channels: {', '.join('f%d' % i for i in moved)}")
+            names = ", ".join(f"f{i} {CHANNEL_NAMES[i]}" for i in moved)
+            print(f"\nresponding channels: {names}")
         else:
-            print("\nNo channel moved more than +/-5. Either nothing was touched, "
-                  "or the RC link is down (f4 == -1 is the suspected link flag).")
+            print("\nNo channel moved more than +/-5 — nothing was touched, "
+                  "or the RC link is down.")
     return 0
 
 
