@@ -54,10 +54,10 @@
 
     # ── equipment ──────────────────────────────────────────────────────────
     lift_speed: 60          # what a full lift request commands (the board takes -60..60)
-    # How the operator's lift channel reads: 'tristate' (-1/0/+1) or 'pwm'.
-    # It was never observed moving, so this is an assumption — a tristate channel
-    # reporting anything else holds lift at 0 rather than guessing.
-    lift_input: tristate
+    # How the operator's lift channel reads. Confirmed on the hardware: the board
+    # sends the SPEED itself, in the same -60..60 the downlink takes (it was seen
+    # reporting 60). 'tristate' (-1/0/+1) and 'pwm' are the other options.
+    lift_input: speed
 
     # Limit switches. OFF because the switch polarity is not known yet: a gate
     # with the polarity backwards either blocks lift forever or never fires.

@@ -37,11 +37,11 @@ Parameters (see config/supervisor.yaml for the full annotated set):
                              front_left, front_right, rear_left, rear_right order.
                              Which controller and channel each wheel hangs off is
                              the driver node's business, not this one's
-  lift_input (str='tristate') how the operator's lift channel reads:
-                             'tristate' (-1/0/+1) or 'pwm' (a pulse width). It
-                             was never observed moving, so 'tristate' is an
-                             assumption; a tristate channel reporting anything
-                             else holds lift at 0 rather than guessing
+  lift_input (str='speed')   how the operator's lift channel reads: 'speed' (the
+                             -60..60 the board actually sends, confirmed on the
+                             hardware), 'tristate' (-1/0/+1), or 'pwm'. A
+                             tristate channel reporting anything else holds lift
+                             at 0 rather than guessing
   wheel_position_units (str='unset')  what ~/joint_states carries: 'rad' or
                              'count' (with counts_per_rev). Autonomous refuses to
                              run while this is 'unset', because counts taken for
@@ -161,7 +161,7 @@ class SupervisorNode(Node):
         self.declare_parameter("roller_layout", "unknown")
         self.declare_parameter("wheel_signs", [-1, 1, -1, 1])
         self.declare_parameter("lift_speed", 60)
-        self.declare_parameter("lift_input", "tristate")
+        self.declare_parameter("lift_input", "speed")
         self.declare_parameter("limit_gating", False)
         self.declare_parameter("limit_active_value", 1)
         self.declare_parameter("mode_names", ["base", "mecanum", "autonomous"])
@@ -231,9 +231,10 @@ class SupervisorNode(Node):
 
         self.lift_speed = int(self.get_parameter("lift_speed").value)
         self.lift_input = str(self.get_parameter("lift_input").value).lower()
-        if self.lift_input not in ("tristate", "pwm"):
+        if self.lift_input not in ("speed", "tristate", "pwm"):
             raise ValueError(
-                f"lift_input must be 'tristate' or 'pwm', got {self.lift_input!r}"
+                f"lift_input must be 'speed', 'tristate' or 'pwm', "
+                f"got {self.lift_input!r}"
             )
         self.limit_gating = bool(self.get_parameter("limit_gating").value)
         self.limit_active_value = int(self.get_parameter("limit_active_value").value)
@@ -612,22 +613,28 @@ class SupervisorNode(Node):
     def _gated_lift(self, rc: list[int]) -> int:
         """Operator lift request, stopped at whichever limit switch is closed."""
         raw = rc[CH["lift"]]
-        if self.lift_input == "pwm":
-            fraction = self._axis(raw, False)
-        elif -1 <= raw <= 1:
-            fraction = float(raw)
+        if self.lift_input == "speed":
+            # The board sends this channel as the speed itself, in the same
+            # -60..60 the downlink takes. Observed on the hardware: it reports
+            # 60, not a switch position and not a pulse width.
+            lift = int(max(-self.lift_speed, min(self.lift_speed, raw)))
         else:
-            # Configured as a -1/0/+1 switch but reporting something else — most
-            # likely it is really a pulse width. Refuse to move rather than
-            # scaling a 1500 into full-speed lift.
-            self.get_logger().error(
-                f"lift channel reported {raw}, outside -1..1 with "
-                f"lift_input='tristate'. Holding lift at 0 — set lift_input='pwm' "
-                f"if the channel carries a pulse width.",
-                throttle_duration_sec=5.0,
-            )
-            return 0
-        lift = int(round(max(-1.0, min(1.0, fraction)) * self.lift_speed))
+            if self.lift_input == "pwm":
+                fraction = self._axis(raw, False)
+            elif -1 <= raw <= 1:
+                fraction = float(raw)
+            else:
+                # Configured as a -1/0/+1 switch but reporting something else.
+                # Refuse to move rather than scaling a stray value into
+                # full-speed lift.
+                self.get_logger().error(
+                    f"lift channel reported {raw}, outside -1..1 with "
+                    f"lift_input='tristate'. Holding lift at 0 — the hardware "
+                    f"was seen sending a speed, so try lift_input='speed'.",
+                    throttle_duration_sec=5.0,
+                )
+                return 0
+            lift = int(round(max(-1.0, min(1.0, fraction)) * self.lift_speed))
         if not self.limit_gating:
             return lift
         at_top = rc[CH["limit_up"]] == self.limit_active_value

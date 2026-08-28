@@ -30,7 +30,13 @@
     # ── downlink: ROS -> board, over the same ttyACM0 ───────────────────────
     # ~/command carries [lift, brake, drill, actuator, solenoid] and goes out as
     # "lift,brake,drill,actuator,solenoid,checksum" with checksum = their sum.
-    command_rate: 50.0        # Hz; the last command is resent at this rate
+    # 10 Hz, not 50. Read-only the board streamed 50 Hz for 40 s with zero drops,
+    # but once commands went out at 50 Hz the uplink started cutting out roughly
+    # once a second — the supervisor logged "no ~/rc within rc_timeout" over and
+    # over. Sending at a tenth of that leaves the board's CDC endpoint alone.
+    # send_on_command is still true, so a changed command goes out immediately;
+    # this rate only governs how often an unchanged one is repeated.
+    command_rate: 10.0        # Hz; the last command is resent at this rate
     command_timeout: 0.5      # s without ~/command before idle_command takes over (0 disables)
     idle_command: [0, 0, 0, 0, 0]   # startup + watchdog value: everything off
     # Range each output accepts; anything outside is clamped before it reaches

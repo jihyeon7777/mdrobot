@@ -52,7 +52,9 @@ the transactions would simply queue.
 
 Safety: with command_timeout > 0 the wheels stop when commands stop arriving.
 Bus access is serialised on a single-threaded executor, so reads and writes
-never interleave.
+never interleave. A failing transaction is counted and logged, never raised: the
+USB adapter has been seen dropping off the bus mid-run, and a node that dies on
+the first hiccup takes the operator's stop and torque-off services with it.
 """
 
 from __future__ import annotations
@@ -61,6 +63,7 @@ import math
 import time
 
 import rclpy
+import serial
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -75,6 +78,13 @@ from mdrobot.transport import SerialTransport, resolve_port
 from mdrobot.units import rpm_to_rad_s
 
 WHEEL_NAMES = ("front_left", "front_right", "rear_left", "rear_right")
+
+# Everything a bus transaction can fail with. MdrobotError covers protocol-level
+# faults; the rest come straight from pyserial and the tty when the adapter is
+# yanked, contended, or wedged. None of them should take the node down — the
+# wheels are stopped by the command watchdog either way, and the operator still
+# needs the node alive to hear about it.
+BUS_ERRORS = (MdrobotError, serial.SerialException, OSError, ValueError)
 
 
 class MecanumDriverNode(Node):
@@ -190,7 +200,7 @@ class MecanumDriverNode(Node):
         for slave, driver in self.drivers.items():
             try:
                 action(driver)
-            except MdrobotError as exc:
+            except BUS_ERRORS as exc:
                 ok = False
                 self._errors += 1
                 self.get_logger().error(
@@ -229,7 +239,7 @@ class MecanumDriverNode(Node):
                     pair[self.wheel_channels[i] - 1] = int(round(wheel_rpm[i]))
             try:
                 driver.set_velocities(pair[0], pair[1])
-            except MdrobotError as exc:
+            except BUS_ERRORS as exc:
                 self._errors += 1
                 self.get_logger().error(
                     f"set_velocities failed on controller {slave}: "
@@ -256,7 +266,7 @@ class MecanumDriverNode(Node):
         for slave, driver in self.drivers.items():
             try:
                 mon = driver.read_monitor()
-            except MdrobotError as exc:
+            except BUS_ERRORS as exc:
                 self._errors += 1
                 self.get_logger().warn(
                     f"monitor read failed on controller {slave}: "
@@ -332,7 +342,7 @@ class MecanumDriverNode(Node):
         self._for_each(lambda d: d.disable(), "disable")
         try:
             self.transport.close()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - the port may already be gone
             pass
         return super().destroy_node()
 
