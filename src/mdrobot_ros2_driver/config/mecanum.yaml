@@ -23,6 +23,11 @@
 
     max_rpm: 600.0            # hard cap per wheel, applied before writing
     command_timeout: 0.5      # s; stop the wheels if commands stop arriving (0 disables)
-    publish_rate: 20.0        # Hz; joint_states
+    # Bus budget, one 19200-baud RS485 line shared by both controllers at ~12 ms
+    # per transaction: 10 Hz of reads (2 controllers) = 24 ms per 100 ms tick,
+    # and the supervisor's 10 Hz of writes costs the same. 48% total, matching
+    # what mecanum.yaml records as working. Raising either rate oversubscribes
+    # the bus and the transactions start queueing.
+    publish_rate: 10.0        # Hz; joint_states
     diag_rate: 2.0            # Hz; diagnostics
     auto_enable: true         # enable both controllers on startup

@@ -6,7 +6,12 @@
 # "/**" applies these parameters to the node regardless of name/namespace.
 /**:
   ros__parameters:
-    rate: 50.0              # Hz; decision and publish rate
+    # 10 Hz, not 50: every tick writes to BOTH controllers over one 19200-baud
+    # RS485 bus, and a transaction costs ~12 ms. At 50 Hz the writes alone want
+    # 120% of the bus. 10 Hz here plus 10 Hz of joint_states reads is 48%, the
+    # same budget mecanum.yaml records as working. The machine tops out at
+    # 0.19 m/s, so 10 Hz is far quicker than it can respond anyway.
+    rate: 10.0              # Hz; decision and publish rate
     rc_timeout: 0.3         # s without ~/rc before drive stops and equipment idles
 
     # ── operator sticks ────────────────────────────────────────────────────

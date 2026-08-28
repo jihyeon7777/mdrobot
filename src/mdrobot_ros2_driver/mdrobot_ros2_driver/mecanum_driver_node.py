@@ -43,6 +43,13 @@ Publishers:
 Services (std_srvs/Trigger):
   ~/enable ~/disable ~/stop ~/brake ~/torque_off ~/reset_position
 
+Bus budget: one 19200-baud line carries both controllers, and a transaction
+costs roughly 12 ms. Every command message writes to both, and every
+joint_states tick reads from both, so the combined rate of ~/cmd_wheel_rpm and
+publish_rate is what has to fit inside a second. 10 Hz each is 48%, the figure
+mecanum.yaml records as working; 50 Hz of commands alone would want 120% and
+the transactions would simply queue.
+
 Safety: with command_timeout > 0 the wheels stop when commands stop arriving.
 Bus access is serialised on a single-threaded executor, so reads and writes
 never interleave.
