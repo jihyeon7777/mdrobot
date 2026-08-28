@@ -1,0 +1,28 @@
+# mdrobot_rc_bridge — RC telemetry bridge parameters.
+#
+#   ros2 launch mdrobot_rc_bridge rc_bridge.launch.py
+#   ros2 launch mdrobot_rc_bridge rc_bridge.launch.py config:=/path/to/my.yaml
+#
+# "/**" applies these parameters to the node regardless of name/namespace.
+/**:
+  ros__parameters:
+    # '' auto-detects the board by its USB product string. Prefer this over a
+    # ttyACM path: the FTDI motor-controller port shares that numbering space.
+    port: ''
+    baudrate: 115200
+    frame_id: rc
+    publish_rate: 50.0      # Hz; the board sends at ~50 Hz
+    stale_timeout: 0.3      # s without a frame before the link reads stale
+    diag_rate: 2.0          # Hz; diagnostics
+
+    # Channels published as Joy axes, normalised to -1..+1. Only steer (0) and
+    # throttle (1) are confirmed to carry 1000-2000 us pulse widths; verify the
+    # others with `examples/read_rc_bridge.py --map` before adding them here.
+    #   0 steer  1 throttle  2 lift       3 brake     4 mode
+    #   5 drill  6 actuator  7 solenoid   8 limit_up  9 limit_down
+    axis_channels: [0, 1]
+    pwm_min: 1000
+    pwm_mid: 1500
+    pwm_max: 2000
+    deadband: 15            # us around pwm_mid that reads as exactly 0.0
+    invert_axes: [-1]       # channels to negate; [-1] = none

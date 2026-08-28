@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mdrobot_rc_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    ROS 2 bridge for the STM32 RC telemetry board. Reads the operator's
+    transmitter channels off a USB CDC-ACM serial link and publishes them, so a
+    ROS 2 node above can act as the sole decision maker and drive the machine.
+  </description>
+  <maintainer email="taesuyim.kopo@gmail.com">Taesu Yim</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>python3-serial</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
