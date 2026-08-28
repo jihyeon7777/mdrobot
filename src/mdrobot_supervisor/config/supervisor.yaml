@@ -32,7 +32,12 @@
     # transmitter off it emitted 1500/1500 on one occasion and 42819/8051 on
     # another, so a range check alone cannot be trusted to catch a dead link.
     require_neutral_start: true
-    invert_steer: false
+    # true: the transmitter's steer channel runs the other way to what the
+    # kinematics assumes. Forward/back came out right while BOTH yaw (base mode)
+    # and strafe (mecanum mode) came out mirrored — and those two are the only
+    # things the steer axis feeds, so the axis is what is reversed, not the
+    # wheel wiring.
+    invert_steer: true
     invert_throttle: false
 
     # What full stick deflection asks for. These are operator targets, not what
@@ -64,11 +69,10 @@
     # wheel hangs off belongs to mecanum_driver_node, not here.
     #
     # Flipped from [-1, 1, -1, 1] after the controllers were swapped front to
-    # rear: forward came out as reverse. Negating all four reverses every motion
-    # together, so yaw and strafe flip with it — which is right if the swap put
-    # each wheel on the opposite side. If forward is now correct but LEFT and
-    # RIGHT are backwards, put this back and set invert_throttle: true instead,
-    # which flips forward/back alone.
+    # rear, which had forward coming out as reverse. Confirmed on the floor:
+    # forward/back is right with these. Left/right needed invert_steer as well —
+    # the two faults were independent, which is why neither value alone fixed
+    # both.
     wheel_signs: [1, -1, 1, -1]
 
     # ── equipment ──────────────────────────────────────────────────────────
