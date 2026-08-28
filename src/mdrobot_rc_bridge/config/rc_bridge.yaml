@@ -26,3 +26,15 @@
     pwm_max: 2000
     deadband: 15            # us around pwm_mid that reads as exactly 0.0
     invert_axes: [-1]       # channels to negate; [-1] = none
+
+    # ── downlink: ROS -> board, over the same ttyACM0 ───────────────────────
+    # ~/command carries [lift, brake, drill, actuator, solenoid] and goes out as
+    # "lift,brake,drill,actuator,solenoid,checksum" with checksum = their sum.
+    command_rate: 50.0        # Hz; the last command is resent at this rate
+    command_timeout: 0.5      # s without ~/command before idle_command takes over (0 disables)
+    idle_command: [0, 0, 0, 0, 0]   # startup + watchdog value: everything off
+    send_on_command: true     # also send the moment a ~/command arrives
+    # Line ending the board's parser expects: crlf | lf | cr. The board *emits*
+    # CRLF; what it accepts was never confirmed, so try lf or cr if commands are
+    # ignored.
+    terminator: crlf

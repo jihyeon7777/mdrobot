@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """ROS 2 node publishing the operator's RC transmitter channels.
 
-Sits at the bottom of the control chain:
+Sits at the bottom of the control chain, carrying both directions over the one
+CDC-ACM port:
 
     transmitter --RF--> STM32 board --USB serial--> THIS NODE --> ROS 2
+                            ^                                       |
+                            +--------- ~/command ------------------ +
 
-The node only reports what the operator is asking for. It decides nothing and
-commands nothing; a node above subscribes here, decides, and drives the MD
-motor controller (drive axes) and the STM32 board (drill, actuator, solenoid).
+The node decides nothing. Upward it reports what the operator is asking for;
+downward it relays whatever the decision layer above publishes on ~/command.
+Drive axes go to the MD motor controller through its own node, not through here.
 
 Interface
 ---------
@@ -27,6 +30,28 @@ Parameters:
   deadband (int=15)         us around pwm_mid that reads as exactly 0.0
   invert_axes (int[])       axis channels to negate after normalising
 
+Downlink parameters:
+  command_rate (float=50.0)   Hz; the last command is resent at this rate, so the
+                              board keeps hearing from ROS and can run its own
+                              failsafe on silence
+  command_timeout (float=0.5) s without a new ~/command before the watchdog takes
+                              over and sends idle_command. 0 disables the watchdog
+  idle_command (int[])        what to send on startup and after a timeout.
+                              Default all zeros — everything off, nothing moving
+  terminator (str='crlf')     line ending the board's parser expects:
+                              'crlf' | 'lf' | 'cr'. The board *emits* CRLF; what
+                              it accepts was never confirmed, so try the others
+                              if commands are ignored
+  send_on_command (bool=True) also send the instant a ~/command arrives, instead
+                              of waiting for the next command_rate tick
+
+Subscriptions:
+  ~/command (std_msgs/Int32MultiArray)
+      data = [lift, brake, drill, actuator, solenoid]
+      Sent to the board verbatim as "lift,brake,drill,actuator,solenoid,checksum"
+      where checksum is their sum. A message of the wrong length is rejected and
+      the previous command stays in force.
+
 Publishers:
   ~/channels (std_msgs/Int32MultiArray)
       All ten channels, exactly as the board sent them. Lossless — prefer this
@@ -36,7 +61,8 @@ Publishers:
       axes    = axis_channels, normalised to -1..+1
       buttons = every remaining channel, raw
   ~/diagnostics (diagnostic_msgs/DiagnosticArray)
-      link state, measured rate, checksum/parse errors, reconnect count
+      link state, measured rate, checksum/parse errors, reconnect count,
+      command counters and whether the watchdog is currently holding
 
 Only the steer and throttle channels are confirmed to carry ~1000-2000 us pulse
 widths. The remaining channels were idle throughout the capture used to write
@@ -45,7 +71,14 @@ this, so their ranges are unverified: check them with
 axis, and adjust axis_channels accordingly.
 
 Serial runs on its own daemon thread because the reader blocks; the ROS timers
-only ever look at the most recent frame.
+only ever look at the most recent frame. Writes go out from the timer thread and
+are serialised against that reader inside RcBridgeReader.
+
+Safety: this link drives a drill, an actuator and a solenoid valve. With
+command_timeout > 0 the node falls back to idle_command when the decision layer
+goes quiet, and it sends idle_command once at startup so nothing inherits a
+state from a previous run. That is a backstop, not a substitute for the board's
+own failsafe.
 """
 
 from __future__ import annotations
@@ -62,10 +95,15 @@ from std_msgs.msg import Int32MultiArray, MultiArrayDimension
 
 from mdrobot_rc_bridge.rc_reader import (
     CHANNEL_NAMES,
+    COMMAND_NAMES,
     NUM_CHANNELS,
+    NUM_COMMANDS,
     RcBridgeReader,
     RcFrame,
 )
+
+# Accepted values for the `terminator` parameter.
+TERMINATORS = {"crlf": "\r\n", "lf": "\n", "cr": "\r"}
 
 
 class RcBridgeNode(Node):
@@ -84,6 +122,11 @@ class RcBridgeNode(Node):
         self.declare_parameter("pwm_max", 2000)
         self.declare_parameter("deadband", 15)
         self.declare_parameter("invert_axes", [-1])
+        self.declare_parameter("command_rate", 50.0)
+        self.declare_parameter("command_timeout", 0.5)
+        self.declare_parameter("idle_command", [0] * NUM_COMMANDS)
+        self.declare_parameter("terminator", "crlf")
+        self.declare_parameter("send_on_command", True)
 
         port = str(self.get_parameter("port").value) or None
         self.frame_id = str(self.get_parameter("frame_id").value)
@@ -108,9 +151,25 @@ class RcBridgeNode(Node):
         self.invert_axes = {int(c) for c in self.get_parameter("invert_axes").value if c >= 0}
         self.button_channels = [c for c in range(NUM_CHANNELS) if c not in self.axis_channels]
 
+        term_key = str(self.get_parameter("terminator").value).lower()
+        if term_key not in TERMINATORS:
+            raise ValueError(
+                f"terminator must be one of {sorted(TERMINATORS)}, got {term_key!r}"
+            )
+        self.command_timeout = float(self.get_parameter("command_timeout").value)
+        self.send_on_command = bool(self.get_parameter("send_on_command").value)
+        self.idle_command = [int(v) for v in self.get_parameter("idle_command").value]
+        if len(self.idle_command) != NUM_COMMANDS:
+            raise ValueError(
+                f"idle_command needs {NUM_COMMANDS} values {COMMAND_NAMES}, "
+                f"got {self.idle_command}"
+            )
+
         self.pub_channels = self.create_publisher(Int32MultiArray, "~/channels", 10)
         self.pub_joy = self.create_publisher(Joy, "~/joy", 10)
         self.pub_diag = self.create_publisher(DiagnosticArray, "~/diagnostics", 1)
+        self.sub_command = self.create_subscription(
+            Int32MultiArray, "~/command", self._on_command, 10)
 
         # Written by the serial thread, read by the timers.
         self._lock = threading.Lock()
@@ -121,8 +180,16 @@ class RcBridgeNode(Node):
         self._rate_mark = (time.monotonic(), 0)
         self._measured_hz = 0.0
 
+        # Downlink state. Start from idle so a fresh run never inherits whatever
+        # the board was last told to do.
+        self._command = list(self.idle_command)
+        self._command_wall = 0.0
+        self._watchdog_held = False
+        self._rejected = 0
+
         self.reader = RcBridgeReader(port=port,
-                                     baudrate=int(self.get_parameter("baudrate").value))
+                                     baudrate=int(self.get_parameter("baudrate").value),
+                                     terminator=TERMINATORS[term_key])
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._serial_loop, daemon=True)
         self._thread.start()
@@ -130,11 +197,21 @@ class RcBridgeNode(Node):
         rate = float(self.get_parameter("publish_rate").value)
         self.create_timer(1.0 / rate, self._on_publish)
         self.create_timer(1.0 / float(self.get_parameter("diag_rate").value), self._on_diag)
+        command_rate = float(self.get_parameter("command_rate").value)
+        self.create_timer(1.0 / command_rate, self._on_send)
 
         self.get_logger().info(
             f"reading {port or 'auto-detected RC bridge'} at "
             f"{self.get_parameter('baudrate').value} baud; "
             f"axes={[CHANNEL_NAMES[c] for c in self.axis_channels]}"
+        )
+        watchdog_desc = (
+            f"watchdog {self.command_timeout:.2f} s -> {self.idle_command}"
+            if self.command_timeout > 0 else "watchdog disabled"
+        )
+        self.get_logger().info(
+            f"sending {list(COMMAND_NAMES)} at {command_rate:.0f} Hz, "
+            f"terminator={term_key}, {watchdog_desc}"
         )
 
     # ── serial thread ───────────────────────────────────────────────────────
@@ -191,11 +268,53 @@ class RcBridgeNode(Node):
         joy.buttons = [frame.channels[c] for c in self.button_channels]
         self.pub_joy.publish(joy)
 
+    def _on_command(self, msg: Int32MultiArray) -> None:
+        """Latch a command from the decision layer above."""
+        if len(msg.data) != NUM_COMMANDS:
+            self._rejected += 1
+            self.get_logger().warn(
+                f"ignoring ~/command with {len(msg.data)} values; "
+                f"expected {NUM_COMMANDS} {COMMAND_NAMES}",
+                throttle_duration_sec=2.0,
+            )
+            return  # keep the previous command rather than acting on a bad one
+        with self._lock:
+            command = [int(v) for v in msg.data]
+            self._command = command
+            self._command_wall = time.monotonic()
+            was_held = self._watchdog_held
+            self._watchdog_held = False
+        if was_held:
+            self.get_logger().info("~/command resumed; watchdog released")
+        if self.send_on_command:
+            # Go out now rather than waiting up to a full command_rate period.
+            # The timer still resends, so the board keeps hearing from ROS even
+            # while the decision layer is idle.
+            self.reader.send(command)
+
+    def _on_send(self) -> None:
+        """Resend the current command, or idle_command if the watchdog fired."""
+        now = time.monotonic()
+        with self._lock:
+            since = now - self._command_wall if self._command_wall > 0 else 0.0
+            if self.command_timeout > 0 and since > self.command_timeout:
+                if not self._watchdog_held:
+                    self._watchdog_held = True
+                    self.get_logger().warn(
+                        f"no ~/command for {self.command_timeout:.2f} s; "
+                        f"holding {self.idle_command}"
+                    )
+                self._command = list(self.idle_command)
+            command = list(self._command)
+        self.reader.send(command)
+
     def _on_diag(self) -> None:
         now = time.monotonic()
         with self._lock:
             age = now - self._frame_wall if self._frame_wall else None
             seq = self._seq
+            held = self._watchdog_held
+            command = list(self._command)
         mark_t, mark_seq = self._rate_mark
         if now > mark_t:
             self._measured_hz = (seq - mark_seq) / (now - mark_t)
@@ -211,6 +330,9 @@ class RcBridgeNode(Node):
         elif age > self.stale_timeout:
             status.level = DiagnosticStatus.ERROR
             status.message = f"stale: no frame for {age:.2f} s"
+        elif held:
+            status.level = DiagnosticStatus.WARN
+            status.message = f"uplink ok at {self._measured_hz:.1f} Hz, watchdog holding idle"
         else:
             status.level = DiagnosticStatus.OK
             status.message = f"ok at {self._measured_hz:.1f} Hz"
@@ -221,6 +343,11 @@ class RcBridgeNode(Node):
             KeyValue(key="unparsable", value=str(stats.unparsable)),
             KeyValue(key="wrong_length", value=str(stats.wrong_length)),
             KeyValue(key="reconnects", value=str(stats.reconnects)),
+            KeyValue(key="commands_sent", value=str(stats.sent)),
+            KeyValue(key="send_errors", value=str(stats.send_errors)),
+            KeyValue(key="commands_rejected", value=str(self._rejected)),
+            KeyValue(key="watchdog_held", value=str(held)),
+            KeyValue(key="command", value=",".join(str(v) for v in command)),
         ]
         with self._lock:
             frame = self._frame
@@ -234,6 +361,11 @@ class RcBridgeNode(Node):
         self.pub_diag.publish(msg)
 
     def destroy_node(self) -> bool:
+        # Last word to the board is "everything off", before the port closes.
+        try:
+            self.reader.send(self.idle_command)
+        except Exception:
+            pass
         self._stop.set()
         self.reader.close()  # unblocks the reader thread's pending read()
         self._thread.join(timeout=1.0)

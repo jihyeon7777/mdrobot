@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import glob
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Iterator
@@ -61,6 +62,36 @@ CHANNEL_NAMES = (
     "limit_down",  # f9  lower limit switch
 )
 assert len(CHANNEL_NAMES) == NUM_CHANNELS
+
+# Downlink: what the board accepts back from ROS, same CSV + checksum shape.
+COMMAND_NAMES = (
+    "lift",      # c0  up / down motor
+    "brake",     # c1
+    "drill",     # c2  drill motor
+    "actuator",  # c3
+    "solenoid",  # c4  solenoid valve
+)
+NUM_COMMANDS = len(COMMAND_NAMES)
+
+# The board's firmware emits CRLF; which terminator its *parser* expects was
+# never established, so it stays configurable. Try "\n" or "\r" if the board
+# ignores commands sent with the default.
+DEFAULT_TERMINATOR = "\r\n"
+
+
+def encode_command(values, terminator: str = DEFAULT_TERMINATOR) -> bytes:
+    """Build one downlink line: five values plus their sum as the checksum.
+
+    Mirrors the uplink rule (checksum == sum of the preceding fields), which is
+    what the board firmware checks.
+    """
+    ints = [int(v) for v in values]
+    if len(ints) != NUM_COMMANDS:
+        raise ValueError(
+            f"expected {NUM_COMMANDS} values {COMMAND_NAMES}, got {len(ints)}"
+        )
+    fields = ints + [sum(ints)]
+    return (",".join(str(v) for v in fields) + terminator).encode("ascii")
 
 
 class RcBridgeError(Exception):
@@ -110,18 +141,26 @@ class RcStats:
     wrong_length: int = 0
     reconnects: int = 0
     opens: int = 0
+    sent: int = 0
+    send_errors: int = 0
     drop_uptimes: list[float] = field(default_factory=list)
 
     def summary(self) -> str:
         return (
             f"frames={self.frames} bad_checksum={self.bad_checksum} "
             f"unparsable={self.unparsable} wrong_length={self.wrong_length} "
-            f"opens={self.opens} reconnects={self.reconnects}"
+            f"opens={self.opens} reconnects={self.reconnects} "
+            f"sent={self.sent} send_errors={self.send_errors}"
         )
 
 
 class RcBridgeReader:
-    """Framed, checksum-checked reader that survives the board re-enumerating.
+    """Framed, checksum-checked link to the board, surviving a re-enumeration.
+
+    Bidirectional over the one CDC-ACM port: :meth:`frames` reads the operator's
+    channels, :meth:`send` writes commands back. The two normally run on
+    different threads; ``_io_lock`` serialises opening, closing and writing so a
+    reconnect cannot swap the handle out from under a write.
 
     The bridge has been observed dropping off the USB bus and coming back a few
     seconds later, which invalidates the open file descriptor. With
@@ -137,6 +176,7 @@ class RcBridgeReader:
         timeout: float = 0.2,
         reconnect: bool = True,
         reconnect_delay: float = 0.3,
+        terminator: str = DEFAULT_TERMINATOR,
     ) -> None:
         self.port = port
         self.baudrate = baudrate
@@ -144,6 +184,8 @@ class RcBridgeReader:
         self.reconnect = reconnect
         self.reconnect_delay = reconnect_delay
         self.stats = RcStats()
+        self.terminator = terminator
+        self._io_lock = threading.RLock()
         self._serial: serial.Serial | None = None
         self._buf = b""
         self._opened_at = 0.0
@@ -155,25 +197,50 @@ class RcBridgeReader:
         return self.port if self.port else find_port()
 
     def open(self) -> None:
-        if self._serial is not None:
-            return
-        path = self._resolve_port()
-        self._serial = serial.Serial(path, self.baudrate, timeout=self.timeout)
-        self._opened_at = time.monotonic()
-        self._buf = b""
-        self.stats.opens += 1
-        # Drop whatever accumulated while we were not listening, then discard the
-        # first (probably partial) line so framing starts on a boundary.
-        self._serial.reset_input_buffer()
+        with self._io_lock:
+            if self._serial is not None:
+                return
+            path = self._resolve_port()
+            self._serial = serial.Serial(path, self.baudrate, timeout=self.timeout)
+            self._opened_at = time.monotonic()
+            self._buf = b""
+            self.stats.opens += 1
+            # Drop whatever accumulated while we were not listening so framing
+            # starts on a line boundary.
+            self._serial.reset_input_buffer()
 
     def close(self) -> None:
-        if self._serial is not None:
+        with self._io_lock:
+            if self._serial is not None:
+                try:
+                    self._serial.close()
+                except Exception:
+                    pass
+                self._serial = None
+            self._buf = b""
+
+    # ── downlink ────────────────────────────────────────────────────────────
+    def send(self, values) -> bool:
+        """Write one command line to the board. True if it went out.
+
+        Never raises on a dead port: a command that cannot be delivered is
+        counted in ``stats.send_errors`` and the port is dropped so the read
+        loop reopens it. Callers resend on their own schedule, so losing one
+        line costs a few milliseconds rather than an exception.
+        """
+        payload = encode_command(values, self.terminator)
+        with self._io_lock:
+            if self._serial is None:
+                self.stats.send_errors += 1
+                return False
             try:
-                self._serial.close()
-            except Exception:
-                pass
-            self._serial = None
-        self._buf = b""
+                self._serial.write(payload)
+                self.stats.sent += 1
+                return True
+            except (serial.SerialException, OSError):
+                self.stats.send_errors += 1
+                self.close()
+                return False
 
     def _handle_drop(self, exc: Exception) -> None:
         uptime = time.monotonic() - self._opened_at
@@ -227,8 +294,17 @@ class RcBridgeReader:
                     self.stats.reconnects += 1
                     time.sleep(self.reconnect_delay)
                     continue
+            # Snapshot the handle under the lock but block on read() outside it:
+            # holding the lock across a read would stall send() for a whole
+            # timeout, which is longer than the command period. pyserial
+            # tolerates one reader and one writer; the race worth guarding is
+            # close() swapping the handle, and the snapshot covers that.
+            with self._io_lock:
+                port = self._serial
+            if port is None:
+                continue  # a failed send closed it; reopen on the next pass
             try:
-                chunk = self._serial.read(256)
+                chunk = port.read(256)
             except (serial.SerialException, OSError) as exc:
                 self._handle_drop(exc)
                 continue
