@@ -149,6 +149,7 @@ class SupervisorNode(Node):
         self.declare_parameter("pwm_max", 2000)
         self.declare_parameter("deadband", 15)
         self.declare_parameter("pwm_tolerance", 200)
+        self.declare_parameter("require_neutral_start", True)
         self.declare_parameter("invert_steer", False)
         self.declare_parameter("invert_throttle", False)
         self.declare_parameter("max_linear_x", 0.2)
@@ -202,6 +203,8 @@ class SupervisorNode(Node):
         self.pwm_mid = int(self.get_parameter("pwm_mid").value)
         self.pwm_max = int(self.get_parameter("pwm_max").value)
         self.deadband = int(self.get_parameter("deadband").value)
+        self.require_neutral_start = bool(
+            self.get_parameter("require_neutral_start").value)
         self.pwm_tolerance = int(self.get_parameter("pwm_tolerance").value)
         if self.pwm_tolerance < 0:
             raise ValueError(f"pwm_tolerance cannot be negative, got {self.pwm_tolerance}")
@@ -324,6 +327,7 @@ class SupervisorNode(Node):
         self._auto_actuator = 0
         self._auto_solenoid = 0
         self._sticks_bad = False
+        self._armed = not self.require_neutral_start
 
         self.create_timer(1.0 / float(self.get_parameter("rate").value), self._on_tick)
         self.create_timer(0.5, self._on_diag)
@@ -428,6 +432,11 @@ class SupervisorNode(Node):
             return False
         return True
 
+    def _at_neutral(self, rc: list[int]) -> bool:
+        """Both sticks resting at centre, within the deadband."""
+        return all(abs(rc[c] - self.pwm_mid) <= self.deadband
+                   for c in (CH["steer"], CH["throttle"]))
+
     def _axis(self, value: int, invert: bool) -> float:
         """Pulse width in microseconds -> -1..+1, with a deadband at centre.
 
@@ -493,6 +502,7 @@ class SupervisorNode(Node):
                 self.sequence.reset()
                 self._was_autonomous = False
                 self._publish_phase("")
+            self._armed = not self.require_neutral_start
             self._publish([0.0] * 4, IDLE_COMMAND, "unknown")
             self._clamp_k = 1.0
             return
@@ -509,12 +519,33 @@ class SupervisorNode(Node):
                 self._was_autonomous = False
                 self._publish_phase("")
             self._sticks_bad = True
+            self._armed = not self.require_neutral_start
             self._publish([0.0] * 4, IDLE_COMMAND, "unusable")
             self._clamp_k = 1.0
             return
         if self._sticks_bad:
             self._sticks_bad = False
-            self.get_logger().info("stick channels back in range; resuming")
+            self.get_logger().info("stick channels back in range")
+
+        if not self._armed:
+            # Arming interlock: hold still until both sticks have been seen at
+            # centre at least once. It catches a launch with the sticks already
+            # pushed, and no-link garbage that happens to land inside the range
+            # check — the board sends no failsafe neutral, and what it does send
+            # with the transmitter off is not even consistent.
+            if self._at_neutral(rc):
+                self._armed = True
+                self.get_logger().info("sticks seen at neutral; drive armed")
+            else:
+                self.get_logger().warn(
+                    f"waiting for neutral sticks before driving: "
+                    f"steer={rc[CH['steer']]} throttle={rc[CH['throttle']]}, "
+                    f"want {self.pwm_mid} +/- {self.deadband}",
+                    throttle_duration_sec=3.0,
+                )
+                self._publish([0.0] * 4, IDLE_COMMAND, "disarmed")
+                self._clamp_k = 1.0
+                return
 
         mode = self._mode_name(rc[CH["mode"]])
         brake = 1 if rc[CH["brake"]] else 0
@@ -738,6 +769,7 @@ class SupervisorNode(Node):
             KeyValue(key="clamp_k", value=f"{self._clamp_k:.3f}"),
             KeyValue(key="rc_rejected", value=str(self._rejected)),
             KeyValue(key="sticks_usable", value=str(not self._sticks_bad)),
+            KeyValue(key="armed", value=str(self._armed)),
             KeyValue(key="limit_gating", value=str(self.limit_gating)),
             KeyValue(key="roller_layout", value=self.geom.roller_layout),
             KeyValue(key="auto_phase", value=self._last_phase or "-"),

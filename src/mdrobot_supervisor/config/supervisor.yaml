@@ -26,6 +26,12 @@
     # so a stick reading 42819 became +1.0 and the wheels went to full speed the
     # moment the drive node stayed up long enough to write it.
     pwm_tolerance: 200
+    # Hold still until both sticks have been seen at centre once, then drive.
+    # Re-arms the same way after a lost link or an unreadable frame, so recovery
+    # always passes through neutral. The board sends no failsafe: with the
+    # transmitter off it emitted 1500/1500 on one occasion and 42819/8051 on
+    # another, so a range check alone cannot be trusted to catch a dead link.
+    require_neutral_start: true
     invert_steer: false
     invert_throttle: false
 
