@@ -49,8 +49,16 @@ Publishers:
         concludes the node is broken. A late subscriber gets the last plate.
     ~/plate_offset (geometry_msgs/Point)
         Where the plate sits relative to the centre of the frame, published on
-        every accepted read rather than on debounced confirmation, because a
-        control loop wants it at frame rate. ``x`` and ``y`` are normalised to
+        every frame a plate-shaped region is located — not only the ones whose
+        text validates, and not on debounced confirmation, because a control
+        loop wants it at frame rate. Reading the characters is a separate and
+        much harder problem than finding the band they sit in, and steering onto
+        the plate does not need the number. Set offset_from_detection false to
+        go back to publishing only alongside a confirmed read.
+
+        This makes the ROI matter: with the whole frame in play the detector can
+        settle on something that is not a plate at all (a patterned floor reads
+        as a text band), and the offset would then point at that. ``x`` and ``y`` are normalised to
         [-1, 1] — ``x`` positive means the plate is to the **right** of centre,
         ``y`` positive means **below** — so they can be used directly as an
         error signal. ``z`` is the plate's width as a fraction of the frame's,
@@ -142,6 +150,7 @@ class PlateOcrNode(Node):
         self.declare_parameter("debug_ring_size", 30)
         self.declare_parameter("debug_keep_hits", True)
         self.declare_parameter("publish_detail", True)
+        self.declare_parameter("offset_from_detection", True)
 
         rate = float(self.get_parameter("ocr_rate").value)
         if rate <= 0.0:
@@ -214,6 +223,8 @@ class PlateOcrNode(Node):
             ),
         )
         self._publish_detail = bool(self.get_parameter("publish_detail").value)
+        self._offset_from_detection = bool(
+            self.get_parameter("offset_from_detection").value)
         self._detail_pub = (
             self.create_publisher(String, "~/plate_detail", 10) if self._publish_detail else None
         )
@@ -283,7 +294,13 @@ class PlateOcrNode(Node):
         if published:
             self._plate_pub.publish(String(data=published))
             self.get_logger().info(f"plate {published}")
-        if accepted is not None and result.offset is not None:
+        # Where the plate IS does not depend on reading what it says. The
+        # detector locates the band to the pixel on frames the OCR then
+        # misreads, and a control loop steering onto the plate only needs the
+        # position. Gating the offset on a successful read tied the approach to
+        # OCR accuracy for no reason.
+        located = accepted is not None or self._offset_from_detection
+        if result.offset is not None and located:
             offset = result.offset
             self._offset_pub.publish(
                 Point(x=offset.dx_norm, y=offset.dy_norm, z=offset.width_ratio)

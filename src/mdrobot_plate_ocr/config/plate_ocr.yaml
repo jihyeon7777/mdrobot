@@ -70,6 +70,19 @@
     preprocess: none                # line strategy only; split binarises itself
     upscale: 3.0
     roi: [-1, -1, -1, -1]           # [-1,-1,-1,-1] = whole frame
+                                    #   SET THIS once the camera is mounted. With
+                                    #   the whole frame in play the detector can
+                                    #   settle on a patterned floor, which reads as
+                                    #   a text band: measured 11.5 s an iteration
+                                    #   OCRing carpet, against 0.11 s with the
+                                    #   ground cropped out.
+
+    # Publish ~/plate_offset whenever a plate-shaped region is located, not only
+    # when its text also validates. Finding the band is far more reliable than
+    # reading it — the region came out identical to the pixel on frames the OCR
+    # misread — and a control loop steering onto the plate does not need the
+    # number. false restores the old behaviour.
+    offset_from_detection: true
 
     # --- validation -----------------------------------------------------
     plate_regex: "^\\d{2,3}[가-힣]\\d{4}$"   # 12가3456 and 123가4567

@@ -90,6 +90,13 @@ Alignment uses `~/plate_offset` from `mdrobot_plate_ocr`: `x` is normalised to
 [-1, 1] with positive meaning the plate sits right of centre, so it feeds
 straight in as an error signal.
 
+It does **not** depend on the plate being read. The detector locates the band to
+the pixel on frames whose text comes out wrong, and steering onto the plate only
+needs the position, so `mdrobot_plate_ocr` publishes the offset for any located
+region (`offset_from_detection`). That matters on this machine: the camera is at
+its focus limit at working distance, and the characters read unreliably while
+the position does not.
+
 Hole alignment expects `~/hole_offset`, the same shape from an upward-facing
 camera. The target is where the **actuator** appears in that frame
 (`auto_hole_target_x/y`), not the frame centre. **No node publishes this yet** —
