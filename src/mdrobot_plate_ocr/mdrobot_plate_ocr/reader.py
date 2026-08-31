@@ -127,6 +127,12 @@ class ReadSettings:
 
     roi: Region | None = None
     detector: str = "textband"
+    # Locate the plate and skip reading it. Finding the band is pure OpenCV and
+    # costs about 34 ms; the OCR that follows costs seconds on a marginal frame.
+    # A control loop steering onto the plate needs the position at rate and
+    # never needs the number, so it can have the first without paying for the
+    # second.
+    detect_only: bool = False
     strategy: str = "split"
     preprocess: str = "none"
     upscale: float = 2.0
@@ -382,7 +388,7 @@ class PlateReader:
         regions = find_regions(gray, settings)
 
         attempts: list[Attempt] = []
-        for region in regions:
+        for region in regions if not settings.detect_only else ():
             x, y, w, h = region
             crop = gray[y : y + h, x : x + w]
             attempt = (

@@ -48,7 +48,9 @@
     hfov_deg: 70.0
 
     # --- recognition ----------------------------------------------------
-    ocr_rate: 3.0                   # Hz. One iteration measured ~180 ms in
+    ocr_rate: 10.0                  # Hz. 10 with detect_only (a read is ~39 ms);
+                                    #   drop to 3.0 if detect_only goes false.
+                                    #   Original note: ~180 ms in
                                     #   the probe, but 4.0 Hz overran its
                                     #   250 ms budget on the node's slower
                                     #   frames; 333 ms has the headroom
@@ -86,6 +88,19 @@
     # misread — and a control loop steering onto the plate does not need the
     # number. false restores the old behaviour.
     offset_from_detection: true
+
+    # Locate the plate and skip reading it. Finding the band costs ~34 ms; the
+    # OCR after it measured 3.7 s on a marginal frame, which dropped
+    # ~/plate_offset to 0.28 Hz — the alignment phase got one reading and was
+    # over before it could steer. With this on the offset arrives at rate and
+    # ~/plate carries nothing, which is the right trade for a machine that has
+    # to drive onto the plate rather than know its number.
+    # ON. Measured on this machine: with OCR the offset came out at 0.28 Hz and
+    # the alignment phase got a single reading before timing out into the blind
+    # entry — it never steered at all. Detection alone runs at 25.7 Hz and gives
+    # the IDENTICAL offset (+0.048 either way). Set false to read plates again,
+    # and expect alignment to stop working.
+    detect_only: true
 
     # --- validation -----------------------------------------------------
     plate_regex: "^\\d{2,3}[가-힣]\\d{4}$"   # 12가3456 and 123가4567

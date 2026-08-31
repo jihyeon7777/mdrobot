@@ -132,13 +132,11 @@
     # than most — the rollers are meant to — so that distance is an estimate,
     # not a measurement, and it decides where a hole gets drilled. Keep the
     # distance short, the speed low, and treat the timeouts as real guards.
-    # s without a plate reading before it counts as lost. 1.5, not 0.5: the
-    # reader publishes at its 3 Hz ocr_rate, but occasional frames take a few
-    # seconds and the measured gap between offsets reached 0.542 s. At 0.5 s one
-    # slow frame would read as "plate lost" and hand over to the blind entry
-    # early — which is the phase that decides where a hole gets drilled. The
-    # cost of the longer timeout is 0.12 m of travel at the approach speed.
-    auto_plate_timeout: 1.5
+    # s without a plate reading before it counts as lost. Back to 0.5 now that
+    # the reader runs detect_only and the offsets arrive an order of magnitude
+    # faster — 0.5 s is five missed frames rather than one. Losing the plate is
+    # what triggers the blind entry, so noticing late means overshooting.
+    auto_plate_timeout: 0.5
     auto_align_gain: 0.4         # strafe m/s per unit of normalised plate offset
     auto_align_tolerance: 0.08   # |offset.x| this small counts as centred
     auto_approach_speed: 0.08    # m/s forward while aligning

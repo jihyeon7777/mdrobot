@@ -47,6 +47,12 @@ Publishers:
         nothing when nothing is recognised" is that someone who runs
         ``ros2 topic echo`` after a successful read sees an empty screen and
         concludes the node is broken. A late subscriber gets the last plate.
+    With detect_only the reader stops after locating the plate. Finding the band
+    costs about 34 ms against seconds for the OCR that would follow, so the
+    offset arrives at rate instead of once every few seconds — which is the
+    difference between a usable control loop and none. ~/plate then carries
+    nothing, by design.
+
     ~/plate_offset (geometry_msgs/Point)
         Where the plate sits relative to the centre of the frame, published on
         every frame a plate-shaped region is located — not only the ones whose
@@ -151,6 +157,7 @@ class PlateOcrNode(Node):
         self.declare_parameter("debug_keep_hits", True)
         self.declare_parameter("publish_detail", True)
         self.declare_parameter("offset_from_detection", True)
+        self.declare_parameter("detect_only", False)
 
         rate = float(self.get_parameter("ocr_rate").value)
         if rate <= 0.0:
@@ -189,6 +196,7 @@ class PlateOcrNode(Node):
             require_legal_syllable=bool(self.get_parameter("require_legal_syllable").value),
             min_syllable_margin=float(self.get_parameter("min_syllable_margin").value),
             hfov_deg=float(self.get_parameter("hfov_deg").value),
+            detect_only=bool(self.get_parameter("detect_only").value),
         )
 
         self._exposure = ExposureController(
