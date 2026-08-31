@@ -32,11 +32,14 @@ drill.
 Why the encoder distance is the weak point
 ------------------------------------------
 Once the plate is out of view there is nothing left to correct against, so ENTER
-is dead reckoning. Mecanum wheels slip more than most — the rollers are meant to
-— so the distance travelled is an estimate, not a measurement, and it decides
-where a hole gets drilled. Keep entry_distance short, keep entry_speed low, and
-treat max_entry_seconds as a real guard rather than a formality. An IMU would
-help and is not fitted yet.
+is dead reckoning, and the distance travelled decides where a hole gets drilled.
+
+Measured on this machine: a commanded 1.000 m drove very close to 1 m on the
+floor, so the slip these rollers were expected to bring is small on that
+surface. That is the number the whole phase rests on, and it is worth
+re-checking on the surface the machine will actually work on. Keep
+entry_distance short, keep entry_speed low, and treat max_entry_seconds as a
+real guard rather than a formality. An IMU would help and is not fitted yet.
 """
 
 from __future__ import annotations

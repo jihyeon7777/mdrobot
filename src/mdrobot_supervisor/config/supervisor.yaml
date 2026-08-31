@@ -49,6 +49,12 @@
 
     # ── mecanum base ───────────────────────────────────────────────────────
     # Geometry from mecanum.yaml. Four wheels on two dual-channel controllers.
+    #
+    # VALIDATED AS A CHAIN, not measured individually: distance is
+    # counts / counts_per_rev x 2pi / gear_ratio x wheel_radius, so only the
+    # product matters. Commanding 1.000 m on the encoders drove very close to
+    # 1 m on the floor, which puts all three values right together — a
+    # wheel_radius 10% out would have shown up as 0.9 m or 1.1 m.
     wheel_radius: 0.0625    # m
     track: 0.575            # m; LEFT-RIGHT wheel centre distance
     wheelbase: 0.5          # m; FRONT-REAR wheel centre distance
