@@ -71,6 +71,7 @@ class Simulator(Node):
         self.seen: list[str] = []
         self.command: list[int] = [0] * 5
         self.drill_seen = False
+        self.per_phase: dict[str, list[int]] = {}
 
         ns = "/mdrobot_supervisor"
         self.pub_rc = self.create_publisher(Int32MultiArray, f"{ns}/rc", 10)
@@ -106,6 +107,8 @@ class Simulator(Node):
         self.command = list(msg.data)
         if len(msg.data) >= 3 and msg.data[2]:
             self.drill_seen = True
+        if self.phase and any(msg.data):
+            self.per_phase.setdefault(self.phase, list(msg.data))
 
     def _on_phase(self, msg: String) -> None:
         if msg.data and msg.data != self.phase:
@@ -165,6 +168,12 @@ def write_params(args) -> str:
     auto_entry_speed: 0.15
     auto_approach_speed: 0.15
     auto_drill_seconds: {args.drill_seconds}
+    auto_lift_down_seconds: {args.stage_seconds}
+    auto_actuator_seconds: {args.stage_seconds}
+    auto_spray_seconds: {args.stage_seconds}
+    auto_retract_seconds: {args.stage_seconds}
+    lift_max_run: 25.0
+    actuator_max_run: 10.0
     auto_hole_stage: false
     auto_max_align_seconds: 30.0
     auto_max_entry_seconds: 30.0
@@ -185,7 +194,10 @@ def main() -> int:
     ap.add_argument("--roller-layout", default="o", choices=["x", "o", "unknown"],
                     help="must match the machine's; 'o' was settled on the floor")
     ap.add_argument("--drill-seconds", type=float, default=1.0)
-    ap.add_argument("--timeout", type=float, default=40.0)
+    ap.add_argument("--stage-seconds", type=float, default=1.0,
+                    help="stands in for the lift-down, actuator and spray times, "
+                         "which are 20/7/30 s on the machine")
+    ap.add_argument("--timeout", type=float, default=60.0)
     args = ap.parse_args()
 
     params = write_params(args)
@@ -216,13 +228,18 @@ def main() -> int:
     started_error = abs(sim.plate_lateral)
     print(f"\nphases: {' -> '.join(sim.seen) or '(none)'}")
     print(f"travelled: {sim.distance:.3f} m     drill fired: {sim.drill_seen}")
+    if sim.per_phase:
+        print("commands seen, [lift, brake, drill, actuator, solenoid]:")
+        for ph, cmd in sim.per_phase.items():
+            print(f"  {ph:11s} {cmd}")
     print(f"plate offset: started {started_error:.3f}, ended {final_error:.3f}, "
           f"worst {sim.worst_error:.3f}")
     aligned = final_error < started_error
     if not aligned:
         print("  the offset did not shrink — the strafe is going the WRONG WAY")
     # wait_plate is skipped when the plate is already in view on the first tick.
-    required = ["align", "enter", "drill", "done"]
+    required = ["align", "enter", "drill", "lift_down", "raise", "spray",
+                "retract", "done"]
     ordered = [p for p in sim.seen if p in required]
     if ordered == required and sim.drill_seen and aligned:
         print("PASS — the whole approach ran on real topics")

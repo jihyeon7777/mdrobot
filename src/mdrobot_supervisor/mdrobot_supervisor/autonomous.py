@@ -13,16 +13,21 @@ autonomous. From there:
     ALIGN       creep forward while strafing to put the plate on centre
     ENTER       the plate has gone out of view under the car; keep going blind
                 for entry_distance, measured on the wheel encoders
-    DRILL       stop, run the drill for drill_seconds
-
-The rest runs only with hole_stage on. It needs an upward-facing camera that is
-not fitted yet, so by default the sequence finishes at the drill.
-
-    FIND_HOLE   wait for the upward camera to pick out the hole just drilled
-    ALIGN_HOLE  shuffle in both axes to bring the hole over the actuator
-    RAISE       drive the actuator up into the hole for actuator_seconds
-    SPRAY       open the solenoid for spray_seconds; water goes through the hole
+    DRILL       stop driving. Lift and drill together for drill_seconds: the
+                bit spins while the lift pushes it up into the underbody
+    LIFT_DOWN   drill off, lift back down for lift_down_seconds. Nothing rises
+                again until it is clear
+    RAISE       actuator up into the hole for actuator_seconds
+    SPRAY       solenoid open for spray_seconds; water through the hole
+    RETRACT     valve shut, actuator back down for retract_seconds
     DONE        hold still; the operator takes it from here
+
+FIND_HOLE and ALIGN_HOLE sit between LIFT_DOWN and RAISE when hole_stage is on.
+They need the upward-facing camera, which is not fitted, so they are skipped by
+default and the actuator goes up where the drill just was.
+
+Every phase that moves the machine moves it mecanum-style. wz is never set:
+autonomous strafes and drives straight, and never yaws.
 
 ABORT is entered instead of any of the above when a guard trips, and like DONE
 it commands nothing. Both are terminal: the operator has to leave autonomous and
@@ -53,10 +58,12 @@ class Phase(Enum):
     ALIGN = "align"
     ENTER = "enter"
     DRILL = "drill"
+    LIFT_DOWN = "lift_down"
     FIND_HOLE = "find_hole"
     ALIGN_HOLE = "align_hole"
     RAISE = "raise"
     SPRAY = "spray"
+    RETRACT = "retract"
     DONE = "done"
     ABORT = "abort"
 
@@ -74,7 +81,12 @@ class AutonomousConfig:
     approach_speed: float = 0.08  # m/s forward while aligning
     entry_distance: float = 1.2  # m to travel blind after losing the plate
     entry_speed: float = 0.08  # m/s forward while entering
-    drill_seconds: float = 5.0  # how long the drill runs once in position
+    # The working sequence, once the machine is under the car. The lift and the
+    # drill start together: the drill spins while the lift pushes it up into the
+    # underbody. Timed for now — the limit switches that should end the up
+    # stroke are not fitted.
+    drill_seconds: float = 20.0  # lift rising AND drill turning
+    lift_down_seconds: float = 20.0  # bringing the lift back down afterwards
 
     # Hole alignment, off the upward-facing camera. Offsets are normalised
     # [-1, 1] against the frame; the target is where the ACTUATOR sits in that
@@ -89,8 +101,9 @@ class AutonomousConfig:
     hole_gain_y: float = -0.3  # m/s of vx per unit of y offset
     hole_max_speed: float = 0.05  # m/s cap while shuffling under the car
 
-    actuator_seconds: float = 3.0  # how long to drive the actuator up
-    spray_seconds: float = 10.0  # how long the solenoid stays open
+    actuator_seconds: float = 7.0  # actuator up, into the hole
+    spray_seconds: float = 30.0  # solenoid open, water through the hole
+    retract_seconds: float = 7.0  # actuator back down once the valve is shut
     # The upward camera is not fitted, so nothing publishes a hole offset. With
     # this off the sequence finishes at the drill instead of stalling in
     # FIND_HOLE until the timeout. Turn it on when the camera and its detector
@@ -105,8 +118,9 @@ class AutonomousConfig:
     def __post_init__(self) -> None:
         for name in ("plate_timeout", "align_gain", "approach_speed",
                      "entry_distance", "entry_speed", "drill_seconds",
-                     "hole_timeout", "hole_max_speed", "actuator_seconds",
-                     "spray_seconds", "max_align_seconds", "max_entry_seconds",
+                     "lift_down_seconds", "hole_timeout", "hole_max_speed",
+                     "actuator_seconds", "spray_seconds", "retract_seconds",
+                     "max_align_seconds", "max_entry_seconds",
                      "max_find_hole_seconds", "max_hole_align_seconds"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
@@ -140,7 +154,8 @@ class Action:
 
     vx: float = 0.0
     vy: float = 0.0
-    wz: float = 0.0
+    wz: float = 0.0  # always 0: autonomous drives mecanum-style, it never yaws
+    lift: int = 0  # signed speed for the up/down motor, -lift_speed..+lift_speed
     drill: int = 0
     actuator: int = 0  # -1 down, 0 hold, +1 up
     solenoid: int = 0
@@ -218,23 +233,39 @@ class AutonomousSequence:
             if travelled >= cfg.entry_distance:
                 self._enter(Phase.DRILL, obs.now,
                             f"in position after {travelled:.2f} m; drilling")
-                return Action(drill=1, phase=self.phase, message=self._message)
+                # Lift and drill start on the same tick, as they do for the rest
+                # of the phase.
+                return Action(lift=1, drill=1, phase=self.phase,
+                              message=self._message)
             self._message = (
                 f"entering blind {travelled:.2f}/{cfg.entry_distance:.2f} m"
             )
             return Action(vx=cfg.entry_speed, phase=self.phase, message=self._message)
 
         if self.phase is Phase.DRILL:
+            # Lift and drill together: the bit spins while the lift pushes it up
+            # into the underbody. A limit switch should end this stroke; until
+            # one is fitted it is timed.
             if elapsed >= cfg.drill_seconds:
+                self._enter(Phase.LIFT_DOWN, obs.now, "hole cut; lowering the lift")
+                return Action(lift=-1, phase=self.phase, message=self._message)
+            self._message = f"drilling and rising {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
+            return Action(lift=1, drill=1, phase=self.phase, message=self._message)
+
+        if self.phase is Phase.LIFT_DOWN:
+            # The drill is off from here. Nothing goes up again until the lift is
+            # all the way down, or the actuator would rise into it.
+            if elapsed >= cfg.lift_down_seconds:
                 if cfg.hole_stage:
                     self._enter(Phase.FIND_HOLE, obs.now,
-                                "drill finished; looking for the hole")
+                                "lift down; looking for the hole")
                 else:
-                    self._enter(Phase.DONE, obs.now,
-                                "drill finished; hole stage disabled")
+                    self._enter(Phase.RAISE, obs.now,
+                                "lift down; raising the actuator")
+                    return Action(actuator=1, phase=self.phase, message=self._message)
                 return Action(phase=self.phase, message=self._message)
-            self._message = f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
-            return Action(drill=1, phase=self.phase, message=self._message)
+            self._message = f"lift lowering {elapsed:.1f}/{cfg.lift_down_seconds:.1f} s"
+            return Action(lift=-1, phase=self.phase, message=self._message)
 
         seen = (obs.hole_offset_x, obs.hole_offset_y, obs.hole_age)
         have_hole = all(v is not None for v in seen)
@@ -282,12 +313,21 @@ class AutonomousSequence:
 
         if self.phase is Phase.SPRAY:
             if elapsed >= cfg.spray_seconds:
-                self._enter(Phase.DONE, obs.now, "spray finished")
-                return Action(phase=self.phase, message=self._message)
+                self._enter(Phase.RETRACT, obs.now, "valve shut; lowering the actuator")
+                return Action(actuator=-1, phase=self.phase, message=self._message)
             self._message = f"spraying {elapsed:.1f}/{cfg.spray_seconds:.1f} s"
             # The actuator is left at 0, not driven: it has reached the hole, and
             # holding +1 against a hard stop would stall it for the whole spray.
             return Action(solenoid=1, phase=self.phase, message=self._message)
+
+        if self.phase is Phase.RETRACT:
+            # Valve already shut — solenoid is 0 from here, so the water stops
+            # before the actuator starts moving out of the hole.
+            if elapsed >= cfg.retract_seconds:
+                self._enter(Phase.DONE, obs.now, "actuator down; sequence complete")
+                return Action(phase=self.phase, message=self._message)
+            self._message = f"actuator lowering {elapsed:.1f}/{cfg.retract_seconds:.1f} s"
+            return Action(actuator=-1, phase=self.phase, message=self._message)
 
         # DONE and ABORT both hold still.
         return Action(phase=self.phase, message=self._message)

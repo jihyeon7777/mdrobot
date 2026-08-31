@@ -175,8 +175,8 @@ class SupervisorNode(Node):
         self.declare_parameter("wheel_signs", [-1, 1, -1, 1])
         self.declare_parameter("lift_speed", 60)
         self.declare_parameter("lift_input", "speed")
-        self.declare_parameter("lift_max_run", 10.0)
-        self.declare_parameter("actuator_max_run", 8.0)
+        self.declare_parameter("lift_max_run", 25.0)
+        self.declare_parameter("actuator_max_run", 10.0)
         self.declare_parameter("limit_gating", False)
         self.declare_parameter("limit_active_value", 1)
         self.declare_parameter("mode_names", ["base", "mecanum", "autonomous"])
@@ -190,7 +190,9 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_approach_speed", 0.08)
         self.declare_parameter("auto_entry_distance", 1.2)
         self.declare_parameter("auto_entry_speed", 0.08)
-        self.declare_parameter("auto_drill_seconds", 5.0)
+        self.declare_parameter("auto_drill_seconds", 20.0)
+        self.declare_parameter("auto_lift_down_seconds", 20.0)
+        self.declare_parameter("auto_retract_seconds", 7.0)
         self.declare_parameter("auto_max_align_seconds", 60.0)
         self.declare_parameter("auto_max_entry_seconds", 60.0)
         self.declare_parameter("auto_hole_stage", False)
@@ -201,8 +203,8 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_hole_gain_x", -0.3)
         self.declare_parameter("auto_hole_gain_y", -0.3)
         self.declare_parameter("auto_hole_max_speed", 0.05)
-        self.declare_parameter("auto_actuator_seconds", 3.0)
-        self.declare_parameter("auto_spray_seconds", 10.0)
+        self.declare_parameter("auto_actuator_seconds", 7.0)
+        self.declare_parameter("auto_spray_seconds", 30.0)
         self.declare_parameter("auto_max_find_hole_seconds", 30.0)
         self.declare_parameter("auto_max_hole_align_seconds", 60.0)
         # Odometry sanity: the drivers publish raw counts unless their own
@@ -287,6 +289,8 @@ class SupervisorNode(Node):
             entry_distance=float(self.get_parameter("auto_entry_distance").value),
             entry_speed=float(self.get_parameter("auto_entry_speed").value),
             drill_seconds=float(self.get_parameter("auto_drill_seconds").value),
+            lift_down_seconds=float(self.get_parameter("auto_lift_down_seconds").value),
+            retract_seconds=float(self.get_parameter("auto_retract_seconds").value),
             max_align_seconds=float(self.get_parameter("auto_max_align_seconds").value),
             max_entry_seconds=float(self.get_parameter("auto_max_entry_seconds").value),
             hole_stage=bool(self.get_parameter("auto_hole_stage").value),
@@ -339,6 +343,7 @@ class SupervisorNode(Node):
         self._wheel_positions: list[float] | None = None
         self._was_autonomous = False
         self._last_phase = ""
+        self._auto_lift = 0
         self._auto_actuator = 0
         self._auto_solenoid = 0
         self._sticks_bad = False
@@ -613,6 +618,7 @@ class SupervisorNode(Node):
         brake = 1 if rc[CH["brake"]] else 0
         auto_drill = 0
 
+        self._auto_lift = 0
         self._auto_actuator = 0
         self._auto_solenoid = 0
         if mode == self.mode_autonomous:
@@ -630,7 +636,13 @@ class SupervisorNode(Node):
         wheel_rpm, k = self._wheel_rpm(vx, vy, wz)
         self._clamp_k = k
 
-        lift = self._run_guard("lift", self._gated_lift(rc), self.lift_max_run, now)
+        # The sequence drives the lift too, and it is the only thing that does
+        # while autonomous is running — the operator's channel reads 0 then.
+        # Either source alone moves it.
+        lift_request = self._gated_lift(rc)
+        if lift_request == 0 and self._auto_lift:
+            lift_request = self._auto_lift * self.lift_speed
+        lift = self._run_guard("lift", lift_request, self.lift_max_run, now)
         # The operator can always drive the actuator; the sequence takes it only
         # when the operator has left it alone.
         actuator = max(-1, min(1, rc[CH["actuator"]] or self._auto_actuator))
@@ -723,6 +735,7 @@ class SupervisorNode(Node):
                 f"autonomous: {action.phase.value} - {action.message}"
             )
         self._publish_phase(action.phase.value)
+        self._auto_lift = action.lift
         self._auto_actuator = action.actuator
         self._auto_solenoid = action.solenoid
         return action.vx, action.vy, action.wz, action.drill
