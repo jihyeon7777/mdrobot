@@ -175,7 +175,7 @@ class SupervisorNode(Node):
         self.declare_parameter("wheel_signs", [-1, 1, -1, 1])
         self.declare_parameter("lift_speed", 60)
         self.declare_parameter("lift_input", "speed")
-        self.declare_parameter("lift_max_run", 25.0)
+        self.declare_parameter("lift_max_run", 15.0)
         self.declare_parameter("actuator_max_run", 10.0)
         self.declare_parameter("limit_gating", False)
         self.declare_parameter("limit_active_value", 1)
@@ -191,7 +191,8 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_entry_distance", 1.2)
         self.declare_parameter("auto_entry_speed", 0.08)
         self.declare_parameter("auto_drill_seconds", 20.0)
-        self.declare_parameter("auto_lift_down_seconds", 20.0)
+        self.declare_parameter("auto_lift_up_seconds", 10.0)
+        self.declare_parameter("auto_lift_down_seconds", 10.0)
         self.declare_parameter("auto_retract_seconds", 7.0)
         self.declare_parameter("auto_max_align_seconds", 60.0)
         self.declare_parameter("auto_max_entry_seconds", 60.0)
@@ -289,6 +290,7 @@ class SupervisorNode(Node):
             entry_distance=float(self.get_parameter("auto_entry_distance").value),
             entry_speed=float(self.get_parameter("auto_entry_speed").value),
             drill_seconds=float(self.get_parameter("auto_drill_seconds").value),
+            lift_up_seconds=float(self.get_parameter("auto_lift_up_seconds").value),
             lift_down_seconds=float(self.get_parameter("auto_lift_down_seconds").value),
             retract_seconds=float(self.get_parameter("auto_retract_seconds").value),
             max_align_seconds=float(self.get_parameter("auto_max_align_seconds").value),

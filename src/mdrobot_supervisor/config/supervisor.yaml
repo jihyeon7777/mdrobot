@@ -100,10 +100,10 @@
     # dropping out mid-run looks like. Once tripped the output stays stopped
     # until the switch returns to neutral. Set 0 to disable.
     # Tune these to just over one full travel.
-    # 25 and 10: the autonomous sequence drives the lift for 20 s while
-    # drilling and the actuator for 7 s, so the guards have to sit above those
-    # or they would cut the working stroke short.
-    lift_max_run: 25.0
+    # 15 and 10: the autonomous sequence drives the lift for 10 s and the
+    # actuator for 7, so the guards have to sit above those or they would cut
+    # the working stroke short.
+    lift_max_run: 15.0
     actuator_max_run: 10.0
 
     # Limit switches stop the lift at each end. OFF because they are NOT FITTED
@@ -154,8 +154,9 @@
     # underbody — then the lift comes back down, the actuator goes up into the
     # hole, the valve opens, and everything retracts. All timed: the limit
     # switches that should end the lift strokes are not fitted yet.
-    auto_drill_seconds: 20.0       # lift rising AND drill turning
-    auto_lift_down_seconds: 20.0   # lift back down, drill off
+    auto_drill_seconds: 20.0       # the bit turns this long, all told
+    auto_lift_up_seconds: 10.0     # of that, the lift pushes up for the first 10
+    auto_lift_down_seconds: 10.0   # lift back down, drill off
     auto_retract_seconds: 7.0      # actuator down after the valve shuts
     auto_max_align_seconds: 60.0
     auto_max_entry_seconds: 60.0

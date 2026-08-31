@@ -13,8 +13,9 @@ autonomous. From there:
     ALIGN       creep forward while strafing to put the plate on centre
     ENTER       the plate has gone out of view under the car; keep going blind
                 for entry_distance, measured on the wheel encoders
-    DRILL       stop driving. Lift and drill together for drill_seconds: the
-                bit spins while the lift pushes it up into the underbody
+    DRILL       stop driving. The bit turns for drill_seconds; the lift pushes
+                it up into the underbody for the first lift_up_seconds of that,
+                then holds while the drill finishes
     LIFT_DOWN   drill off, lift back down for lift_down_seconds. Nothing rises
                 again until it is clear
     RAISE       actuator up into the hole for actuator_seconds
@@ -85,8 +86,9 @@ class AutonomousConfig:
     # drill start together: the drill spins while the lift pushes it up into the
     # underbody. Timed for now — the limit switches that should end the up
     # stroke are not fitted.
-    drill_seconds: float = 20.0  # lift rising AND drill turning
-    lift_down_seconds: float = 20.0  # bringing the lift back down afterwards
+    drill_seconds: float = 20.0  # how long the bit turns, all told
+    lift_up_seconds: float = 10.0  # of that, how long the lift keeps pushing up
+    lift_down_seconds: float = 10.0  # bringing the lift back down afterwards
 
     # Hole alignment, off the upward-facing camera. Offsets are normalised
     # [-1, 1] against the frame; the target is where the ACTUATOR sits in that
@@ -118,7 +120,8 @@ class AutonomousConfig:
     def __post_init__(self) -> None:
         for name in ("plate_timeout", "align_gain", "approach_speed",
                      "entry_distance", "entry_speed", "drill_seconds",
-                     "lift_down_seconds", "hole_timeout", "hole_max_speed",
+                     "lift_up_seconds", "lift_down_seconds",
+                     "hole_timeout", "hole_max_speed",
                      "actuator_seconds", "spray_seconds", "retract_seconds",
                      "max_align_seconds", "max_entry_seconds",
                      "max_find_hole_seconds", "max_hole_align_seconds"):
@@ -243,14 +246,20 @@ class AutonomousSequence:
             return Action(vx=cfg.entry_speed, phase=self.phase, message=self._message)
 
         if self.phase is Phase.DRILL:
-            # Lift and drill together: the bit spins while the lift pushes it up
-            # into the underbody. A limit switch should end this stroke; until
-            # one is fitted it is timed.
+            # The bit turns for the whole phase; the lift only pushes up for the
+            # first lift_up_seconds of it and then holds while the drill
+            # finishes. Limit switches should end the stroke instead of a clock,
+            # and are not fitted.
             if elapsed >= cfg.drill_seconds:
                 self._enter(Phase.LIFT_DOWN, obs.now, "hole cut; lowering the lift")
                 return Action(lift=-1, phase=self.phase, message=self._message)
-            self._message = f"drilling and rising {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
-            return Action(lift=1, drill=1, phase=self.phase, message=self._message)
+            rising = elapsed < cfg.lift_up_seconds
+            self._message = (
+                f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
+                f"{', lift rising' if rising else ', lift held'}"
+            )
+            return Action(lift=1 if rising else 0, drill=1,
+                          phase=self.phase, message=self._message)
 
         if self.phase is Phase.LIFT_DOWN:
             # The drill is off from here. Nothing goes up again until the lift is
