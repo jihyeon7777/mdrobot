@@ -16,16 +16,19 @@ Two passes:
   push (default)  torque off and move the machine by hand. Free-rolling wheels
                   do not slip, so this calibrates counts_per_rev honestly.
                   Nothing is driven. Two ways to say how far:
-                    --turns N     mark one tyre and push until the mark has come
-                                  round N times. Better: it needs no tape
-                                  measure and does not care whether the
-                                  configured wheel_radius is right.
+                    --turns N     mark one tyre and turn it N times. Better: it
+                                  needs no tape measure and does not care
+                                  whether the configured wheel_radius is right.
+                    --wheel W     with --turns, read that one wheel only. Prop
+                                  the machine up and spin the wheel by hand:
+                                  ten turns is four metres of floor otherwise,
+                                  and a wheel in the air cannot slip at all.
                     --distance M  push a measured M metres instead.
   drive           drive forward until the counters say the target distance, then
                   stop. Measure the real distance with a tape: the difference is
                   slip. THE MACHINE MOVES.
 
-    python3 examples/measure_travel.py --turns 10
+    python3 examples/measure_travel.py --turns 10 --wheel front_left
     python3 examples/measure_travel.py --turns 10 --circumference 0.393
     python3 examples/measure_travel.py --distance 1.0
     python3 examples/measure_travel.py --distance 1.0 --drive --rpm 60
@@ -126,6 +129,9 @@ def main() -> int:
                     help="metres to travel (default 1.0)")
     ap.add_argument("--turns", type=float, default=None,
                     help="push pass: revolutions of a marked tyre instead of metres")
+    ap.add_argument("--wheel", choices=[w[0] for w in WHEELS], default=None,
+                    help="measure this one wheel only — for spinning it by hand with "
+                         "the machine up on blocks, instead of pushing it along")
     ap.add_argument("--circumference", type=float, default=None,
                     help="measured tyre circumference in metres; with --turns this "
                          "gives metres/count without trusting wheel_radius")
@@ -139,6 +145,11 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=30.0,
                     help="give up on --drive after this many seconds")
     args = ap.parse_args()
+
+    if args.wheel and not args.turns:
+        ap.error("--wheel needs --turns: a single wheel says nothing about metres")
+    if args.wheel and args.drive:
+        ap.error("--wheel is for turning a wheel by hand, not for --drive")
 
     transport = SerialTransport(resolve_port(args.port), args.baud, timeout=0.3)
     drivers = {slave: DualMotorDriver(ModbusClient(transport, slave_id=slave))
@@ -162,7 +173,13 @@ def run_pushed(args, drivers) -> int:
     for d in drivers.values():
         d.torque_off_both()
 
-    if args.turns:
+    if args.turns and args.wheel:
+        print(f"Prop the machine up so the {args.wheel} wheel spins free. Put a mark "
+              f"on that tyre and a reference beside it, then turn it by hand exactly "
+              f"{args.turns:g} times.")
+        print("More turns is better: it divides the error of spotting the mark.")
+        print("Only that wheel is read, so the others can stay still.")
+    elif args.turns:
         print(f"Put a mark on one tyre and on the floor beside it. Push the machine "
               f"straight until that mark has come back round exactly "
               f"{args.turns:g} times.")
@@ -170,9 +187,12 @@ def run_pushed(args, drivers) -> int:
     else:
         print(f"Mark a start line and a line exactly {args.distance:.3f} m ahead.")
 
-    input("Line it up on the start and press Enter... ")
+    input("Line the mark up and press Enter... ")
     start = read_positions(drivers)
-    if args.turns:
+    if args.turns and args.wheel:
+        input(f"Now turn the {args.wheel} wheel {args.turns:g} times by hand, "
+              f"then press Enter... ")
+    elif args.turns:
         input(f"Now push until the mark has come round {args.turns:g} times, "
               f"then press Enter... ")
     else:
@@ -180,6 +200,11 @@ def run_pushed(args, drivers) -> int:
               f"and press Enter... ")
     end = read_positions(drivers)
     mean, deltas = signed_mean(start, end)
+
+    if args.wheel:
+        # Only one wheel moved, so averaging over four would divide the answer.
+        deltas = {args.wheel: deltas[args.wheel]}
+        mean = float(deltas[args.wheel])
 
     if args.turns:
         report_turns(deltas, mean, args.turns, args.gear_ratio, args.circumference)
