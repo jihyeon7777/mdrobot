@@ -11,15 +11,22 @@
 
     # Where each wheel lives, in front_left, front_right, rear_left, rear_right
     # order. From the repository's mecanum.yaml.
-    wheel_slave_ids: [1, 1, 2, 2]
+    # Measured with `measure_travel.py --identify`, one output at a time:
+    # controller 1 drives the REAR pair and controller 2 the FRONT.
+    #   ctrl1 ch1 = rear_right   ctrl1 ch2 = rear_left
+    #   ctrl2 ch1 = front_left   ctrl2 ch2 = front_right
+    wheel_slave_ids: [2, 2, 1, 1]
     wheel_channels: [1, 2, 2, 1]
     joint_names: ['front_left', 'front_right', 'rear_left', 'rear_right']
 
     # Counts per revolution of the MOTOR shaft, per wheel. Set these and
     # joint_states carries radians; leave them 0.0 and it carries RAW COUNTS,
     # which the supervisor refuses to dead-reckon with. Measure them:
-    #   python3 examples/calibrate_counts_per_rev.py --type dual --port /dev/ttyUSB0
-    counts_per_rev: [0.0, 0.0, 0.0, 0.0]
+    #   python3 examples/measure_travel.py --turns 20 --wheel front_right --spin
+    # Measured: 4812 counts over 20.25 wheel turns at gear 20 = 11.88, and the
+    # controllers report 4 poles, which is 3 x 4 = 12 exactly. 240 counts per
+    # wheel revolution, 1.64 mm of ground per count.
+    counts_per_rev: [12.0, 12.0, 12.0, 12.0]
 
     max_rpm: 600.0            # hard cap per wheel, applied before writing
     command_timeout: 0.5      # s; stop the wheels if commands stop arriving (0 disables)

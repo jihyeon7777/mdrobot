@@ -55,11 +55,13 @@ from mdrobot.protocol import ModbusClient  # noqa: E402
 from mdrobot.transport import SerialTransport, resolve_port  # noqa: E402
 
 # Wheel order and where each one hangs off the bus, from mecanum.yaml.
+# Measured with --identify, one output at a time: controller 1 is the REAR
+# pair and controller 2 the FRONT. (name, slave_id, channel, forward sign)
 WHEELS = (
-    ("front_left", 1, 1, 1),
-    ("front_right", 1, 2, -1),
-    ("rear_left", 2, 2, 1),
-    ("rear_right", 2, 1, -1),
+    ("front_left", 2, 1, -1),
+    ("front_right", 2, 2, 1),
+    ("rear_left", 1, 2, -1),
+    ("rear_right", 1, 1, 1),
 )
 PORT = "/dev/ttyUSB0"
 
@@ -142,6 +144,14 @@ def main() -> int:
                          "gives metres/count without trusting wheel_radius")
     ap.add_argument("--wheel-radius", type=float, default=0.0625)
     ap.add_argument("--gear-ratio", type=float, default=20.0)
+    ap.add_argument("--identify", action="store_true",
+                    help="spin each controller output in turn, with a pause between, "
+                         "so the physical wheel behind each one can be named. "
+                         "MOVES EACH WHEEL BRIEFLY")
+    ap.add_argument("--hold", type=float, default=4.0,
+                    help="--identify: seconds to spin each output")
+    ap.add_argument("--gap", type=float, default=3.0,
+                    help="--identify: seconds of stillness between outputs")
     ap.add_argument("--spin", action="store_true",
                     help="drive the --wheel slowly instead of turning it by hand, for "
                          "when the gearbox will not backdrive. MOVES THAT WHEEL")
@@ -165,6 +175,8 @@ def main() -> int:
     drivers = {slave: DualMotorDriver(ModbusClient(transport, slave_id=slave))
                for slave in sorted({w[1] for w in WHEELS})}
     try:
+        if args.identify:
+            return run_identify(args, drivers)
         if args.spin:
             return run_spin(args, drivers)
         if args.drive:
@@ -234,6 +246,47 @@ def run_pushed(args, drivers) -> int:
     return 0
 
 
+def run_identify(args, drivers) -> int:
+    """Spin each output in turn so the operator can name the wheel behind it.
+
+    The wheel map is the one thing that cannot be worked out from the software
+    side, and guessing it from a verbal description has already cost a round
+    trip. Four outputs, one at a time, with a clear pause between: the operator
+    writes down the order and the map follows from that.
+    """
+    order = [(slave, channel)
+             for slave in sorted(drivers)
+             for channel in (1, 2)]
+    print("IDENTIFY pass — each wheel moves in turn. Prop the machine up.")
+    print(f"  {args.hold:.0f} s spinning, then {args.gap:.0f} s still, four times.")
+    print("  Write down which wheel moves in each slot, in order.\n")
+    for i, (slave, channel) in enumerate(order, 1):
+        print(f"  slot {i}: controller {slave}, channel {channel}")
+    print(f"\n  total {len(order) * (args.hold + args.gap):.0f} s")
+    if input("  Type 'go' to start: ").strip().lower() != "go":
+        print("  cancelled")
+        return 1
+
+    for i, (slave, channel) in enumerate(order, 1):
+        driver = drivers[slave]
+        print(f"\n  slot {i}  ->  controller {slave} channel {channel}   SPINNING")
+        try:
+            driver.enable()
+            driver.set_velocity(channel, args.rpm)
+            time.sleep(args.hold)
+        finally:
+            try:
+                driver.stop()
+            except MdrobotError:
+                pass
+        print(f"  slot {i}  stopped, {args.gap:.0f} s pause")
+        time.sleep(args.gap)
+
+    print("\n  done. Tell me the four wheels in slot order, e.g.")
+    print("    1 rear_left, 2 rear_right, 3 front_left, 4 front_right")
+    return 0
+
+
 def run_spin(args, drivers) -> int:
     """Drive one wheel and let the operator count the mark going round."""
     name, slave, channel, _sign = next(w for w in WHEELS if w[0] == args.wheel)
@@ -243,31 +296,59 @@ def run_spin(args, drivers) -> int:
     print(f"SPIN pass — the {name} wheel will be driven. Prop the machine up.")
     print(f"  {args.rpm} motor rpm is {wheel_rpm:.1f} wheel rpm, so {args.turns:g} "
           f"turns takes about {seconds:.0f} s.")
-    print("  Mark the tyre, watch the mark, and press Enter the moment it has come")
-    print(f"  round for the {args.turns:g}th time.")
+    print("  Mark the tyre and COUNT how many times the mark comes round.")
+    print("  It stops on its own — nothing to press, so your reaction time does")
+    print("  not enter the measurement.")
     if input("  Type 'go' to start: ").strip().lower() != "go":
         print("  cancelled")
         return 1
 
+    # Drive a fixed number of counts and stop. The assumed counts_per_rev only
+    # decides how long that takes — the answer comes from the turns actually
+    # counted, so nothing here depends on the guess being right.
+    target = args.turns * args.gear_ratio * args.counts_per_rev
     driver.enable()
     start = read_positions(drivers)
     driver.set_velocity(channel, args.rpm)
+    delta = 0
+    deadline = time.monotonic() + seconds * 3 + 10
     try:
-        input(f"  spinning — press Enter after {args.turns:g} turns... ")
+        while time.monotonic() < deadline:
+            time.sleep(0.2)
+            delta = abs(read_positions(drivers)[name] - start[name])
+            print(f"\r  {delta:6.0f} / {target:.0f} counts", end="", flush=True)
+            if delta >= target:
+                break
+        else:
+            print("\n  timed out")
     finally:
         try:
             driver.stop()
         except MdrobotError:
             pass
-    time.sleep(0.5)  # let it coast before the final read
-    end = read_positions(drivers)
-
-    mean, deltas = signed_mean(start, end)
-    one = {name: deltas[name]}
-    report_turns(one, float(deltas[name]), args.turns, args.gear_ratio,
-                 args.circumference)
-    print("\nCoasting after the stop inflates this slightly. Use more turns, or")
-    print("a lower --rpm, if the number looks high.")
+    time.sleep(0.8)  # let it coast to a stop before the final read
+    delta = abs(read_positions(drivers)[name] - start[name])
+    print(f"\n\n  stopped after {delta} counts on {name}")
+    print(f"  gear ratio {args.gear_ratio:g}, so counts_per_rev = "
+          f"{delta:.0f} / (turns x {args.gear_ratio:g})")
+    for guess in (10, 12, 15, 20, 24, 30):
+        turns = delta / (guess * args.gear_ratio)
+        print(f"    if counts_per_rev were {guess:2d} -> {turns:.2f} turns")
+    if sys.stdin.isatty():
+        answer = input("\n  How many turns did the mark actually make? ").strip()
+        try:
+            observed = float(answer)
+        except ValueError:
+            print("  not a number; work it out from the table above")
+            return 0
+        if observed > 0:
+            cpr = delta / (observed * args.gear_ratio)
+            print(f"\n  => counts_per_rev (motor shaft) = {cpr:.2f}")
+            print(f"     nearest whole value            = {round(cpr)}")
+            if args.circumference:
+                per_wheel = cpr * args.gear_ratio
+                print(f"     resolution = "
+                      f"{args.circumference / per_wheel * 1000:.2f} mm/count")
     return 0
 
 

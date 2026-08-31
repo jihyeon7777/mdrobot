@@ -32,12 +32,9 @@
     # transmitter off it emitted 1500/1500 on one occasion and 42819/8051 on
     # another, so a range check alone cannot be trusted to catch a dead link.
     require_neutral_start: true
-    # true: the transmitter's steer channel runs the other way to what the
-    # kinematics assumes. Forward/back came out right while BOTH yaw (base mode)
-    # and strafe (mecanum mode) came out mirrored — and those two are the only
-    # things the steer axis feeds, so the axis is what is reversed, not the
-    # wheel wiring.
-    invert_steer: true
+    # Back to false with the corrected wheel map: the yaw it was cancelling came
+    # from the map having the controllers swapped, not from the transmitter.
+    invert_steer: false
     invert_throttle: false
 
     # What full stick deflection asks for. These are operator targets, not what
@@ -62,18 +59,25 @@
     # changes nothing else. It cannot be decided by eye — the roller you see from
     # above projects to the mirror of the ground-contact roller that does the
     # work. Only a floor test settles it.  x | o | unknown
+    #
+    # Still unverified, and correcting the wheel map reversed strafe from
+    # whatever it was doing before. Drive mecanum mode sideways: if it goes the
+    # wrong way, set this to 'o'.
     roller_layout: unknown
 
     # sign = +1 when a POSITIVE rpm drives that wheel FORWARD, in front_left,
     # front_right, rear_left, rear_right order. Which controller and channel each
     # wheel hangs off belongs to mecanum_driver_node, not here.
     #
-    # Flipped from [-1, 1, -1, 1] after the controllers were swapped front to
-    # rear, which had forward coming out as reverse. Confirmed on the floor:
-    # forward/back is right with these. Left/right needed invert_steer as well —
-    # the two faults were independent, which is why neither value alone fixed
-    # both.
-    wheel_signs: [1, -1, 1, -1]
+    # Back to [-1, 1, -1, 1] now that the wheel map is the measured one. These
+    # signs and invert_steer were together compensating for a map that had the
+    # two controllers the wrong way round.
+    #
+    # Checked wheel by wheel against the old combination: FORWARD and YAW come
+    # out byte-identical, so the directions confirmed on the floor still hold.
+    # STRAFE comes out reversed — it was never verified either way, and
+    # roller_layout below is the knob for it.
+    wheel_signs: [-1, 1, -1, 1]
 
     # ── equipment ──────────────────────────────────────────────────────────
     lift_speed: 60          # what a full lift request commands (the board takes -60..60)
@@ -142,7 +146,7 @@
     # publish raw counts unless their own counts_per_rev is set, and counts taken
     # for radians would end the blind entry in a single tick and fire the drill
     # at the entry point. Measure with examples/calibrate_counts_per_rev.py.
-    wheel_position_units: unset
+    wheel_position_units: rad
 
     # ── hole alignment, actuator, spray ────────────────────────────────────
     # After drilling, an upward-facing camera picks out the hole and the machine
