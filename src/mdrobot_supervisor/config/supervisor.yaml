@@ -132,11 +132,21 @@
     # than most — the rollers are meant to — so that distance is an estimate,
     # not a measurement, and it decides where a hole gets drilled. Keep the
     # distance short, the speed low, and treat the timeouts as real guards.
-    auto_plate_timeout: 0.5      # s without a plate reading before it counts as lost
+    # s without a plate reading before it counts as lost. 1.5, not 0.5: the
+    # reader publishes at its 3 Hz ocr_rate, but occasional frames take a few
+    # seconds and the measured gap between offsets reached 0.542 s. At 0.5 s one
+    # slow frame would read as "plate lost" and hand over to the blind entry
+    # early — which is the phase that decides where a hole gets drilled. The
+    # cost of the longer timeout is 0.12 m of travel at the approach speed.
+    auto_plate_timeout: 1.5
     auto_align_gain: 0.4         # strafe m/s per unit of normalised plate offset
     auto_align_tolerance: 0.08   # |offset.x| this small counts as centred
     auto_approach_speed: 0.08    # m/s forward while aligning
-    auto_entry_distance: 1.2     # m to travel blind after losing the plate
+    # m to travel blind after losing the plate. 0.2 for bench testing — the
+    # real value is the distance from where the plate leaves the camera's view
+    # to the centre of the underbody, and has to be measured on the target
+    # vehicle before this drives under anything.
+    auto_entry_distance: 0.2
     auto_entry_speed: 0.08       # m/s forward while entering
     auto_drill_seconds: 5.0      # how long the drill runs once in position
     auto_max_align_seconds: 60.0

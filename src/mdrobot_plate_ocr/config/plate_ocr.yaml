@@ -69,13 +69,16 @@
                                     #   syllable a Korean plate can carry
     preprocess: none                # line strategy only; split binarises itself
     upscale: 3.0
-    roi: [-1, -1, -1, -1]           # [-1,-1,-1,-1] = whole frame
-                                    #   SET THIS once the camera is mounted. With
-                                    #   the whole frame in play the detector can
-                                    #   settle on a patterned floor, which reads as
-                                    #   a text band: measured 11.5 s an iteration
-                                    #   OCRing carpet, against 0.11 s with the
-                                    #   ground cropped out.
+    # [-1,-1,-1,-1] = whole frame. Set to the camera's mounted view: the floor
+    # has to be outside it. A patterned floor reads as a text band, and the
+    # detector settles on it in preference to the plate. Measured on this
+    # machine, cropping the ground out took an iteration from 10.6 s to 0.11 s
+    # and left the offset unchanged at +0.05:
+    #     whole frame  10599 ms      height 700   113 ms
+    #     height 900     454 ms      height 420    97 ms
+    # 700 keeps room above and below the plate (which sits at y 150-330 here)
+    # while leaving the carpet out. Re-measure if the camera moves.
+    roi: [0, 0, 1920, 700]
 
     # Publish ~/plate_offset whenever a plate-shaped region is located, not only
     # when its text also validates. Finding the band is far more reliable than
