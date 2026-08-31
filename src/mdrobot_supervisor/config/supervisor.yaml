@@ -60,10 +60,10 @@
     # above projects to the mirror of the ground-contact roller that does the
     # work. Only a floor test settles it.  x | o | unknown
     #
-    # Still unverified, and correcting the wheel map reversed strafe from
-    # whatever it was doing before. Drive mecanum mode sideways: if it goes the
-    # wrong way, set this to 'o'.
-    roller_layout: unknown
+    # SETTLED ON THE FLOOR: with the measured wheel map, 'x' strafed the wrong
+    # way in mecanum mode while forward and yaw were both correct. 'o' is the
+    # layout. This was the last value on the machine still taken on trust.
+    roller_layout: o
 
     # sign = +1 when a POSITIVE rpm drives that wheel FORWARD, in front_left,
     # front_right, rear_left, rear_right order. Which controller and channel each

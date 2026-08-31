@@ -37,6 +37,7 @@ from std_msgs.msg import Float64MultiArray, Int32MultiArray, String
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "mdrobot_supervisor"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "mdrobot_rc_bridge"))
 
+from mdrobot_supervisor.kinematics import layout_sign  # noqa: E402
 from mdrobot_supervisor.supervisor_node import SupervisorNode  # noqa: E402
 
 # Idle RC frame: sticks centred, autonomous selected on the mode switch.
@@ -91,10 +92,13 @@ class Simulator(Node):
         # Undo the mounting signs, then average: for pure vx all four agree.
         forward = sum(v * s for v, s in zip(msg.data, WHEEL_SIGNS)) / 4.0
         self.vx = forward / GEAR_RATIO / 60.0 * 2 * math.pi * WHEEL_RADIUS
-        # Strafe: the vy column is (-1, +1, +1, -1) at the wheel, so undoing the
-        # mounting signs with that pattern recovers the lateral component.
+        # Strafe: the vy column is (-1, +1, +1, -1) times the roller-layout
+        # sign, so undoing the mounting signs with that pattern recovers the
+        # lateral component. The layout has to match the supervisor's, or the
+        # simulated world disagrees with the machine about which way is left.
+        sy = layout_sign(self.args.roller_layout)
         vy_col = (-1, 1, 1, -1)
-        lateral = sum(v * s * c for v, s, c
+        lateral = sum(v * s * c * sy for v, s, c
                       in zip(msg.data, WHEEL_SIGNS, vy_col)) / 4.0
         self.vy = lateral / GEAR_RATIO / 60.0 * 2 * math.pi * WHEEL_RADIUS
 
@@ -150,7 +154,7 @@ def write_params(args) -> str:
     rc_timeout: 1.0
     wheel_position_units: rad
     wheel_signs: [1, -1, 1, -1]
-    roller_layout: unknown
+    roller_layout: {args.roller_layout}
     gear_ratio: {GEAR_RATIO}
     wheel_radius: {WHEEL_RADIUS}
     max_linear_x: 0.19
@@ -178,6 +182,8 @@ def main() -> int:
                     help="normalised plate offset; positive = right of centre")
     ap.add_argument("--plate-lost-at", type=float, default=0.4,
                     help="metres travelled at which the plate goes out of view")
+    ap.add_argument("--roller-layout", default="o", choices=["x", "o", "unknown"],
+                    help="must match the machine's; 'o' was settled on the floor")
     ap.add_argument("--drill-seconds", type=float, default=1.0)
     ap.add_argument("--timeout", type=float, default=40.0)
     args = ap.parse_args()
