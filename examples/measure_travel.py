@@ -23,12 +23,17 @@ Two passes:
                                   the machine up and spin the wheel by hand:
                                   ten turns is four metres of floor otherwise,
                                   and a wheel in the air cannot slip at all.
+                    --spin        drive that wheel instead of turning it. The
+                                  20:1 gearbox does not backdrive easily, so a
+                                  wheel with the torque off can still be immovable
+                                  by hand.
                     --distance M  push a measured M metres instead.
   drive           drive forward until the counters say the target distance, then
                   stop. Measure the real distance with a tape: the difference is
                   slip. THE MACHINE MOVES.
 
     python3 examples/measure_travel.py --turns 10 --wheel front_left
+    python3 examples/measure_travel.py --turns 10 --wheel front_left --spin --rpm 200
     python3 examples/measure_travel.py --turns 10 --circumference 0.393
     python3 examples/measure_travel.py --distance 1.0
     python3 examples/measure_travel.py --distance 1.0 --drive --rpm 60
@@ -137,6 +142,9 @@ def main() -> int:
                          "gives metres/count without trusting wheel_radius")
     ap.add_argument("--wheel-radius", type=float, default=0.0625)
     ap.add_argument("--gear-ratio", type=float, default=20.0)
+    ap.add_argument("--spin", action="store_true",
+                    help="drive the --wheel slowly instead of turning it by hand, for "
+                         "when the gearbox will not backdrive. MOVES THAT WHEEL")
     ap.add_argument("--drive", action="store_true",
                     help="drive the distance instead of pushing it. MOVES THE MACHINE")
     ap.add_argument("--rpm", type=int, default=60, help="motor rpm for --drive")
@@ -149,12 +157,16 @@ def main() -> int:
     if args.wheel and not args.turns:
         ap.error("--wheel needs --turns: a single wheel says nothing about metres")
     if args.wheel and args.drive:
-        ap.error("--wheel is for turning a wheel by hand, not for --drive")
+        ap.error("--wheel is for one wheel; --drive moves the whole machine")
+    if args.spin and not (args.wheel and args.turns):
+        ap.error("--spin needs --wheel and --turns")
 
     transport = SerialTransport(resolve_port(args.port), args.baud, timeout=0.3)
     drivers = {slave: DualMotorDriver(ModbusClient(transport, slave_id=slave))
                for slave in sorted({w[1] for w in WHEELS})}
     try:
+        if args.spin:
+            return run_spin(args, drivers)
         if args.drive:
             return run_driven(args, drivers)
         return run_pushed(args, drivers)
@@ -171,7 +183,14 @@ def main() -> int:
 def run_pushed(args, drivers) -> int:
     print("PUSH pass — the wheels are freed and nothing is driven.")
     for d in drivers.values():
+        # enable() first: it sets PID_UI_COM to serial control, and without that
+        # the controller echoes commands without acting on them — torque_off
+        # included. disable() after drops the run latch but leaves torque off.
+        d.enable()
         d.torque_off_both()
+        d.disable()
+    print("If a wheel still will not turn, the 20:1 gearbox is what is holding")
+    print("it, not the motor. Use --spin to drive it instead.")
 
     if args.turns and args.wheel:
         print(f"Prop the machine up so the {args.wheel} wheel spins free. Put a mark "
@@ -212,6 +231,43 @@ def run_pushed(args, drivers) -> int:
         report(deltas, mean, args.distance, args.gear_ratio, args.wheel_radius)
     print("\nFree-rolling wheels barely slip, so this is the honest counts_per_rev.")
     print("Put it in mecanum.yaml, then run again with --drive to measure slip.")
+    return 0
+
+
+def run_spin(args, drivers) -> int:
+    """Drive one wheel and let the operator count the mark going round."""
+    name, slave, channel, _sign = next(w for w in WHEELS if w[0] == args.wheel)
+    driver = drivers[slave]
+    wheel_rpm = args.rpm / args.gear_ratio
+    seconds = args.turns / wheel_rpm * 60.0
+    print(f"SPIN pass — the {name} wheel will be driven. Prop the machine up.")
+    print(f"  {args.rpm} motor rpm is {wheel_rpm:.1f} wheel rpm, so {args.turns:g} "
+          f"turns takes about {seconds:.0f} s.")
+    print("  Mark the tyre, watch the mark, and press Enter the moment it has come")
+    print(f"  round for the {args.turns:g}th time.")
+    if input("  Type 'go' to start: ").strip().lower() != "go":
+        print("  cancelled")
+        return 1
+
+    driver.enable()
+    start = read_positions(drivers)
+    driver.set_velocity(channel, args.rpm)
+    try:
+        input(f"  spinning — press Enter after {args.turns:g} turns... ")
+    finally:
+        try:
+            driver.stop()
+        except MdrobotError:
+            pass
+    time.sleep(0.5)  # let it coast before the final read
+    end = read_positions(drivers)
+
+    mean, deltas = signed_mean(start, end)
+    one = {name: deltas[name]}
+    report_turns(one, float(deltas[name]), args.turns, args.gear_ratio,
+                 args.circumference)
+    print("\nCoasting after the stop inflates this slightly. Use more turns, or")
+    print("a lower --rpm, if the number looks high.")
     return 0
 
 
