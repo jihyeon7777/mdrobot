@@ -158,6 +158,7 @@ class PlateOcrNode(Node):
         self.declare_parameter("publish_detail", True)
         self.declare_parameter("offset_from_detection", True)
         self.declare_parameter("detect_only", False)
+        self.declare_parameter("width_ratio_range", [0.05, 0.75])
 
         rate = float(self.get_parameter("ocr_rate").value)
         if rate <= 0.0:
@@ -197,6 +198,8 @@ class PlateOcrNode(Node):
             min_syllable_margin=float(self.get_parameter("min_syllable_margin").value),
             hfov_deg=float(self.get_parameter("hfov_deg").value),
             detect_only=bool(self.get_parameter("detect_only").value),
+            width_ratio_range=tuple(  # type: ignore[arg-type]
+                float(v) for v in self.get_parameter("width_ratio_range").value),
         )
 
         self._exposure = ExposureController(

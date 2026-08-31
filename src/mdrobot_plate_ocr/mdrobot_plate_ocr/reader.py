@@ -157,6 +157,12 @@ class ReadSettings:
     # the same plate measured 5.17 as a band and 2.16 as a rectangle.
     min_area_ratio: float = 0.005
     aspect_range: tuple[float, float] = (1.8, 9.0)
+    # How wide a plate may be as a fraction of the frame. Without OCR to reject
+    # nonsense, this is what separates a plate from a wall edge or a floor line:
+    # those span the frame and come out at 1.0, where a plate at working
+    # distance measured 0.35. Only used by the detector, so it applies to
+    # detect_only as much as to a full read.
+    width_ratio_range: tuple[float, float] = (0.05, 0.75)
 
     def __post_init__(self) -> None:
         if self.detector not in DETECTORS:
@@ -306,9 +312,14 @@ def find_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
         else _contour_regions(search, settings)
     )
     absolute = [(base[0] + rx, base[1] + ry, rw, rh) for rx, ry, rw, rh in found]
-    # The base region is the fallback, so a detector that finds nothing degrades
-    # to "read the whole thing" rather than to silence.
-    return (absolute or [base])[: settings.max_candidates]
+    if absolute:
+        return absolute[: settings.max_candidates]
+    # Nothing found. Falling back to the whole ROI means "read the whole thing",
+    # which is a reasonable last resort for OCR — but detect_only turns the
+    # region straight into a position, and "the plate is the entire frame"
+    # steers the machine at the middle of whatever it happens to be facing.
+    # Better to report nothing and let the caller wait.
+    return [] if settings.detect_only else [base]
 
 
 def _textband_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
@@ -328,10 +339,18 @@ def _textband_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     low, high = settings.aspect_range
     min_area = settings.min_area_ratio * gray.shape[0] * gray.shape[1]
+    frame_width = gray.shape[1]
+    narrow, wide = settings.width_ratio_range
+
+    def plausible(box: Region) -> bool:
+        x, y, w, h = box
+        return (w * h >= min_area and w >= 100 and h >= 16
+                and low <= w / max(h, 1) <= high
+                and narrow <= w / frame_width <= wide)
+
     regions = [
-        (x, y, w, h)
-        for x, y, w, h in (cv2.boundingRect(contour) for contour in contours)
-        if w * h >= min_area and w >= 100 and h >= 16 and low <= w / max(h, 1) <= high
+        box for box in (cv2.boundingRect(contour) for contour in contours)
+        if plausible(box)
     ]
     regions.sort(key=lambda region: -region[2] * region[3])
     return regions
