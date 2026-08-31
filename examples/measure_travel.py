@@ -13,13 +13,20 @@ on the wheel counters. Two numbers decide whether that can work:
 
 Two passes:
 
-  push (default)  torque off, push the machine a measured distance by hand.
-                  Free-rolling wheels do not slip, so this calibrates
-                  counts_per_rev honestly. Nothing is driven.
+  push (default)  torque off and move the machine by hand. Free-rolling wheels
+                  do not slip, so this calibrates counts_per_rev honestly.
+                  Nothing is driven. Two ways to say how far:
+                    --turns N     mark one tyre and push until the mark has come
+                                  round N times. Better: it needs no tape
+                                  measure and does not care whether the
+                                  configured wheel_radius is right.
+                    --distance M  push a measured M metres instead.
   drive           drive forward until the counters say the target distance, then
                   stop. Measure the real distance with a tape: the difference is
                   slip. THE MACHINE MOVES.
 
+    python3 examples/measure_travel.py --turns 10
+    python3 examples/measure_travel.py --turns 10 --circumference 0.393
     python3 examples/measure_travel.py --distance 1.0
     python3 examples/measure_travel.py --distance 1.0 --drive --rpm 60
 """
@@ -65,12 +72,36 @@ def signed_mean(start: dict[str, int], end: dict[str, int]) -> tuple[float, dict
     return sum(deltas.values()) / len(deltas), deltas
 
 
-def report(deltas: dict[str, int], mean: float, distance: float,
-           gear_ratio: float, wheel_radius: float) -> None:
+def spread(deltas: dict[str, int], mean: float) -> None:
     print("\nper wheel (sign-corrected so forward is positive):")
     for name, d in deltas.items():
-        spread = "" if mean == 0 else f"   {(d - mean) / abs(mean) * 100:+.1f}% vs mean"
-        print(f"  {name:12s} {d:+7d} counts{spread}")
+        off = "" if mean == 0 else f"   {(d - mean) / abs(mean) * 100:+.1f}% vs mean"
+        print(f"  {name:12s} {d:+7d} counts{off}")
+
+
+def report_turns(deltas, mean: float, turns: float, gear_ratio: float,
+                 circumference: float | None) -> None:
+    """Counts per wheel revolution, straight from a marked tyre."""
+    spread(deltas, mean)
+    print(f"\n  mean          {mean:+7.1f} counts over {turns:g} wheel turns")
+    if mean == 0:
+        print("  nothing moved — push further")
+        return
+    per_wheel_rev = mean / turns
+    cpr = per_wheel_rev / gear_ratio
+    print(f"  counts / wheel revolution      = {per_wheel_rev:.1f}")
+    print(f"\n  => counts_per_rev (motor shaft) = {cpr:.2f}")
+    print(f"     nearest whole value            = {round(cpr)}")
+    print("     (this one needs no tape measure and does not use wheel_radius)")
+    if circumference:
+        print(f"\n  with the measured circumference {circumference:.3f} m:")
+        print(f"     resolution      = {circumference / per_wheel_rev * 1000:.2f} mm/count")
+        print(f"     implied radius  = {circumference / (2 * math.pi):.4f} m")
+
+
+def report(deltas: dict[str, int], mean: float, distance: float,
+           gear_ratio: float, wheel_radius: float) -> None:
+    spread(deltas, mean)
     print(f"\n  mean          {mean:+7.1f} counts over {distance:.3f} m")
     if mean == 0:
         print("  nothing moved — check the drive, or push further")
@@ -84,6 +115,7 @@ def report(deltas: dict[str, int], mean: float, distance: float,
     print(f"\n  => counts_per_rev (motor shaft) = {cpr:.2f}")
     print(f"     nearest whole value            = {round(cpr)}")
     print(f"     resolution                     = {distance / mean * 1000:.2f} mm/count")
+    print(f"     (assumes wheel_radius {wheel_radius} m — use --turns to avoid that)")
 
 
 def main() -> int:
@@ -92,6 +124,11 @@ def main() -> int:
     ap.add_argument("--baud", type=int, default=19200)
     ap.add_argument("--distance", type=float, default=1.0,
                     help="metres to travel (default 1.0)")
+    ap.add_argument("--turns", type=float, default=None,
+                    help="push pass: revolutions of a marked tyre instead of metres")
+    ap.add_argument("--circumference", type=float, default=None,
+                    help="measured tyre circumference in metres; with --turns this "
+                         "gives metres/count without trusting wheel_radius")
     ap.add_argument("--wheel-radius", type=float, default=0.0625)
     ap.add_argument("--gear-ratio", type=float, default=20.0)
     ap.add_argument("--drive", action="store_true",
@@ -124,13 +161,30 @@ def run_pushed(args, drivers) -> int:
     print("PUSH pass — the wheels are freed and nothing is driven.")
     for d in drivers.values():
         d.torque_off_both()
-    print(f"Mark a start line and a line exactly {args.distance:.3f} m ahead of it.")
-    input("Line the machine up on the start mark and press Enter... ")
+
+    if args.turns:
+        print(f"Put a mark on one tyre and on the floor beside it. Push the machine "
+              f"straight until that mark has come back round exactly "
+              f"{args.turns:g} times.")
+        print("More turns is better: it divides the error of spotting the mark.")
+    else:
+        print(f"Mark a start line and a line exactly {args.distance:.3f} m ahead.")
+
+    input("Line it up on the start and press Enter... ")
     start = read_positions(drivers)
-    input(f"Now push it straight to the {args.distance:.3f} m mark and press Enter... ")
+    if args.turns:
+        input(f"Now push until the mark has come round {args.turns:g} times, "
+              f"then press Enter... ")
+    else:
+        input(f"Now push it straight to the {args.distance:.3f} m mark "
+              f"and press Enter... ")
     end = read_positions(drivers)
     mean, deltas = signed_mean(start, end)
-    report(deltas, mean, args.distance, args.gear_ratio, args.wheel_radius)
+
+    if args.turns:
+        report_turns(deltas, mean, args.turns, args.gear_ratio, args.circumference)
+    else:
+        report(deltas, mean, args.distance, args.gear_ratio, args.wheel_radius)
     print("\nFree-rolling wheels barely slip, so this is the honest counts_per_rev.")
     print("Put it in mecanum.yaml, then run again with --drive to measure slip.")
     return 0
