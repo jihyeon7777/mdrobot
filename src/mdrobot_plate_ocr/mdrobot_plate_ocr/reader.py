@@ -165,13 +165,17 @@ class ReadSettings:
     width_ratio_range: tuple[float, float] = (0.05, 0.75)
     # How far the textband detector reaches to join neighbouring strokes into one
     # band. It has to span the gap between the plate's character groups, and that
-    # gap grows with the plate's size in frame, so no single value fits every
-    # distance. Measured against the true plate centre:
-    #     plate 35% of frame   41 -> +0.058   81 -> +0.011   121 -> -0.047
-    #     plate 63% of frame   41 -> -0.266   81 -> -0.372   121 -> -0.044
-    # 41 is right where the alignment actually works. A plate filling 60% of the
-    # frame is about to leave it, and the blind entry has taken over by then.
-    band_close_width: int = 41
+    # gap grows with the plate's size in frame. Measured through the real
+    # detector against the true plate centre (~0 in all three frames):
+    #                        width 41        width 121
+    #   plate 35% of frame   +0.048          +0.009
+    #   plate 40% of frame   +0.045          -0.002
+    #   plate 55% of frame   -0.679  <-- caught only a fragment
+    #                                        -0.001
+    # 121 spans the gap at every distance tried; 41 breaks up the plate as it
+    # fills the frame, and a fifth-of-a-frame error in the offset steers the
+    # machine off the plate exactly when it is closest to it.
+    band_close_width: int = 121
 
     def __post_init__(self) -> None:
         if self.detector not in DETECTORS:
