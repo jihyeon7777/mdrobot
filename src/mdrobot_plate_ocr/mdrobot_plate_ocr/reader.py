@@ -163,6 +163,15 @@ class ReadSettings:
     # distance measured 0.35. Only used by the detector, so it applies to
     # detect_only as much as to a full read.
     width_ratio_range: tuple[float, float] = (0.05, 0.75)
+    # How far the textband detector reaches to join neighbouring strokes into one
+    # band. It has to span the gap between the plate's character groups, and that
+    # gap grows with the plate's size in frame, so no single value fits every
+    # distance. Measured against the true plate centre:
+    #     plate 35% of frame   41 -> +0.058   81 -> +0.011   121 -> -0.047
+    #     plate 63% of frame   41 -> -0.266   81 -> -0.372   121 -> -0.044
+    # 41 is right where the alignment actually works. A plate filling 60% of the
+    # frame is about to leave it, and the blind entry has taken over by then.
+    band_close_width: int = 41
 
     def __post_init__(self) -> None:
         if self.detector not in DETECTORS:
@@ -332,7 +341,9 @@ def _textband_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
     closed = cv2.morphologyEx(gradient, cv2.MORPH_CLOSE, rect)
     _, mask = cv2.threshold(closed, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
     mask = cv2.morphologyEx(
-        mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (41, 11))
+        mask,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (settings.band_close_width, 11)),
     )
     mask = cv2.erode(mask, None, iterations=2)
 

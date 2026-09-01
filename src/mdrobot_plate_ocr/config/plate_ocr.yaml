@@ -109,6 +109,17 @@
     # rejected for being too big or too small in view.
     width_ratio_range: [0.05, 0.75]
 
+    # How far the detector reaches to join strokes into one band. It has to span
+    # the gap between the plate's character groups, and that gap grows with the
+    # plate's size in frame, so one value cannot fit every distance. Measured
+    # against the true plate centre:
+    #     plate 35% of frame   41 -> +0.058   81 -> +0.011   121 -> -0.047
+    #     plate 63% of frame   41 -> -0.266   81 -> -0.372   121 -> -0.044
+    # 41 is right where alignment actually happens. A plate filling 60% of the
+    # frame is about to leave it and the blind entry takes over. Raise it if the
+    # detection box keeps catching only part of the plate.
+    band_close_width: 41
+
     # --- validation -----------------------------------------------------
     plate_regex: "^\\d{2,3}[가-힣]\\d{4}$"   # 12가3456 and 123가4567
     require_legal_syllable: true    # only the 40 syllables plates actually use
