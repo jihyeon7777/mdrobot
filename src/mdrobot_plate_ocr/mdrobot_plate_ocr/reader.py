@@ -158,11 +158,15 @@ class ReadSettings:
     min_area_ratio: float = 0.005
     aspect_range: tuple[float, float] = (1.8, 9.0)
     # How wide a plate may be as a fraction of the frame. Without OCR to reject
-    # nonsense, this is what separates a plate from a wall edge or a floor line:
-    # those span the frame and come out at 1.0, where a plate at working
-    # distance measured 0.35. Only used by the detector, so it applies to
-    # detect_only as much as to a full read.
-    width_ratio_range: tuple[float, float] = (0.05, 0.75)
+    # nonsense this is the main thing separating a plate from a shelf edge, a
+    # wall line or the side of a box. Measured across thirteen frames:
+    #     the plate            0.35 to 0.63
+    #     other candidates     0.10  0.14  0.15  0.16
+    #     a whole-frame band   1.00
+    # 0.20 clears the competition with room on both sides. A plate further away
+    # than that is simply not acted on yet, which is the safe way to be wrong:
+    # the sequence waits instead of steering at a cardboard box.
+    width_ratio_range: tuple[float, float] = (0.20, 0.75)
     # How far the textband detector reaches to join neighbouring strokes into one
     # band. It has to span the gap between the plate's character groups, and that
     # gap grows with the plate's size in frame. Measured through the real

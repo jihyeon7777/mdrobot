@@ -103,11 +103,16 @@
     detect_only: true
 
     # How wide a plate may be as a fraction of the frame. With detect_only there
-    # is no OCR left to reject nonsense, so this is what separates a plate from a
-    # wall edge or a floor line: those span the frame and report 1.0, where the
-    # plate at working distance measured 0.35. Widen it if the plate is ever
-    # rejected for being too big or too small in view.
-    width_ratio_range: [0.05, 0.75]
+    # is no OCR left to reject nonsense, so this is the main thing separating a
+    # plate from a shelf edge, a wall line or the side of a box. Measured across
+    # thirteen frames:
+    #     the plate           0.35 to 0.63
+    #     other candidates    0.10  0.14  0.15  0.16
+    #     a whole-frame band  1.00
+    # 0.20 clears the competition both ways. A plate further off than that is
+    # not acted on yet, which is the safe way to be wrong — the sequence waits
+    # rather than steering at a box. Lower it if alignment has to start sooner.
+    width_ratio_range: [0.20, 0.75]
 
     # How far the detector reaches to join strokes into one band. It has to span
     # the gap between the plate's character groups, and that gap grows with the
