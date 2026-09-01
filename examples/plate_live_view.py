@@ -20,6 +20,7 @@ Nothing else may hold the camera: stop the plate_ocr node first.
     python3 examples/plate_live_view.py
     python3 examples/plate_live_view.py --ocr        # also try to read it
     python3 examples/plate_live_view.py --no-roi     # see what the ROI hides
+    python3 examples/plate_live_view.py --rotate 180 # camera mounted upside down
 
 Keys:  q quit   r toggle the ROI   o toggle OCR   s save the frame
 """
@@ -35,6 +36,7 @@ import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "mdrobot_plate_ocr"))
 
+from mdrobot_plate_ocr.camera import Camera, CameraSettings  # noqa: E402
 from mdrobot_plate_ocr.reader import (  # noqa: E402
     PlateReader,
     ReadSettings,
@@ -65,6 +67,9 @@ def main() -> int:
     ap.add_argument("--device", default="/dev/video0")
     ap.add_argument("--width", type=int, default=1920)
     ap.add_argument("--height", type=int, default=1080)
+    ap.add_argument("--rotate", type=int, default=0, choices=(0, 90, 180, 270),
+                    help="degrees clockwise; 180 if the camera is mounted upside "
+                         "down. Must match plate_ocr.yaml's rotate")
     ap.add_argument("--roi-height", type=int, default=700,
                     help="rows from the top to search; the floor must be below it")
     ap.add_argument("--no-roi", action="store_true")
@@ -72,24 +77,40 @@ def main() -> int:
     ap.add_argument("--show-width", type=int, default=1280, help="window width")
     args = ap.parse_args()
 
-    cap = cv2.VideoCapture(args.device, cv2.CAP_V4L2)
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-    if not cap.isOpened():
-        print(f"could not open {args.device} — is plate_ocr_node still running?")
+    # The package's own Camera, not a bare VideoCapture: the V4L2 queue on this
+    # webcam is four frames deep, so a plain read() hands back something from a
+    # few hundred milliseconds ago and the picture appears not to follow the
+    # plate. Camera.grab drains the queue first.
+    try:
+        camera = Camera(CameraSettings(device=args.device, width=args.width,
+                                       height=args.height, rotate=args.rotate))
+    except Exception as exc:
+        print(f"could not open {args.device}: {exc}")
+        print("is plate_ocr_node still running? it holds the camera")
         return 1
+
+    window = "plate detector"
+    cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(window, args.show_width, int(args.show_width * 9 / 16))
 
     use_roi = not args.no_roi
     use_ocr = args.ocr
     reader = None
     print("q quit   r toggle ROI   o toggle OCR   s save")
 
+    frames = 0
     while True:
-        ok, frame = cap.read()
-        if not ok:
-            print("frame grab failed")
+        try:
+            frame = camera.grab()
+        except Exception as exc:
+            print(f"frame grab failed: {exc}")
             break
+        frames += 1
+        if frames <= 3:
+            # If the window comes up black, this says whether the camera is
+            # handing over an all-dark frame or the drawing is at fault.
+            print(f"frame {frames}: {frame.shape[1]}x{frame.shape[0]} "
+                  f"mean brightness {frame.mean():.1f}")
         started = time.perf_counter()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         h, w = gray.shape
@@ -140,12 +161,12 @@ def main() -> int:
                      f"   {elapsed:5.0f}ms",
                      "nothing published — the sequence would wait"]
         lines.append(f"ROI {'on' if use_roi else 'OFF'}   OCR {'on' if use_ocr else 'off'}"
+                     f"   rotate {args.rotate}"
                      f"   [q]uit [r]oi [o]cr [s]ave")
         banner(frame, lines)
 
         scale = args.show_width / w
-        cv2.imshow("plate detector — live",
-                   cv2.resize(frame, (args.show_width, int(h * scale))))
+        cv2.imshow(window, cv2.resize(frame, (args.show_width, int(h * scale))))
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
@@ -158,7 +179,7 @@ def main() -> int:
             cv2.imwrite(name, frame)
             print(f"saved {name}")
 
-    cap.release()
+    camera.close()
     cv2.destroyAllWindows()
     return 0
 
