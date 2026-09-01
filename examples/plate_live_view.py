@@ -76,6 +76,12 @@ def main() -> int:
     ap.add_argument("--no-roi", action="store_true")
     ap.add_argument("--ocr", action="store_true", help="also read the plate (slow)")
     ap.add_argument("--show-width", type=int, default=1280, help="window width")
+    ap.add_argument("--exposure", type=int, default=0,
+                    help="manual exposure in 100us units; 0 leaves the camera on "
+                         "auto. Adjust live with [ and ]")
+    ap.add_argument("--all", action="store_true",
+                    help="draw every candidate region, not only the chosen one — "
+                         "shows what else is competing with the plate")
     ap.add_argument("--flip-display", action="store_true",
                     help="turn the WINDOW the other way up. Display only — the "
                          "detector still works on the frame as captured, so the "
@@ -96,14 +102,19 @@ def main() -> int:
         print("is plate_ocr_node still running? it holds the camera")
         return 1
 
+    exposure = args.exposure
+    if exposure:
+        camera.set_exposure(exposure)
+
     window = "plate detector"
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(window, args.show_width, int(args.show_width * 9 / 16))
 
     use_roi = not args.no_roi
     use_ocr = args.ocr
+    show_all = args.all
     reader = None
-    print("q quit   r toggle ROI   o toggle OCR   s save")
+    print("q quit   r ROI   o OCR   a all candidates   [ ] exposure   s save")
 
     frames = 0
     while True:
@@ -124,7 +135,10 @@ def main() -> int:
         roi = (0, 0, w, min(args.roi_height, h)) if use_roi else None
         settings = ReadSettings(roi=roi, detector="textband", detect_only=not use_ocr,
                                 strategy="split", syllable_source="template",
-                                preprocess="none", upscale=3.0, psm=7)
+                                preprocess="none", upscale=3.0, psm=7,
+                                # Only while looking: with OCR on, every extra
+                                # candidate is another Tesseract pass.
+                                max_candidates=8 if (show_all and not use_ocr) else 3)
 
         text = ""
         if use_ocr:
@@ -145,6 +159,19 @@ def main() -> int:
                           (roi[0] + roi[2], roi[1] + roi[3]), BLUE, 3)
         cv2.drawMarker(frame, (w // 2, h // 2), WHITE, cv2.MARKER_CROSS, 40, 2)
 
+        # Everything the detector would accept, so it is obvious what the plate
+        # is competing against. The chosen one is green; the rest are yellow
+        # with the numbers that decide between them.
+        if show_all and len(regions) > 1:
+            for rx, ry, rw2, rh2 in regions[1:]:
+                patch = gray[ry : ry + rh2, rx : rx + rw2]
+                cv2.rectangle(frame, (rx, ry), (rx + rw2, ry + rh2), (0, 210, 210), 2)
+                cv2.putText(frame,
+                            f"{rw2 / w * 100:.0f}%  bright {patch.mean():.0f}"
+                            f"  ar {rw2 / max(rh2, 1):.1f}",
+                            (rx, max(ry - 8, 20)), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6, (0, 210, 210), 2, cv2.LINE_AA)
+
         if regions:
             x, y, rw, rh = regions[0]
             band = gray[y : y + rh, x : x + rw]
@@ -155,7 +182,8 @@ def main() -> int:
             cv2.line(frame, (w // 2, h // 2), (cx, cy), GREEN, 2)
             lines = [
                 f"focus(band) {focus_of(band):6.0f}   glyph {estimate_glyph_height(band):4.0f}px"
-                f"   width {off.width_ratio * 100:3.0f}%   {elapsed:5.0f}ms",
+                f"   width {off.width_ratio * 100:3.0f}%   bright {band.mean():3.0f}"
+                f"   {elapsed:5.0f}ms",
                 f"offset x {off.dx_norm:+.3f}  y {off.dy_norm:+.3f}"
                 f"   band {rw}x{rh}",
             ]
@@ -167,9 +195,11 @@ def main() -> int:
             lines = [f"no detection   focus(frame) {focus_of(gray):6.0f}"
                      f"   {elapsed:5.0f}ms",
                      "nothing published — the sequence would wait"]
-        lines.append(f"ROI {'on' if use_roi else 'OFF'}   OCR {'on' if use_ocr else 'off'}"
-                     f"   rotate {args.rotate}"
-                     f"   [q]uit [r]oi [o]cr [s]ave")
+        lines.append(
+            f"ROI {'on' if use_roi else 'OFF'}  OCR {'on' if use_ocr else 'off'}"
+            f"  all {'on' if show_all else 'off'}  candidates {len(regions)}"
+            f"  exposure {exposure or 'auto'}"
+            f"   [q] [r] [o] [a] [ ] [s]")
         banner(frame, lines)
 
         scale = args.show_width / w
@@ -185,6 +215,13 @@ def main() -> int:
             use_roi = not use_roi
         if key == ord("o"):
             use_ocr = not use_ocr
+        if key == ord("a"):
+            show_all = not show_all
+        if key in (ord("["), ord("]")):
+            # Manual exposure, in the same 100us units the node uses.
+            exposure = max(1, (exposure or 60) + (10 if key == ord("]") else -10))
+            camera.set_exposure(exposure)
+            print(f"exposure -> {exposure}")
         if key == ord("s"):
             name = f"debug/live_{int(time.time())}.jpg"
             cv2.imwrite(name, frame)
