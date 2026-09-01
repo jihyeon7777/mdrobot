@@ -121,6 +121,16 @@
     # merging the plate with something beside it.
     band_close_width: 121
 
+    # A plate is a bright panel; a shelf edge or the side of a box is not.
+    # Measured as the band's mean brightness over the searched area's, which
+    # survives a change of lighting or exposure where an absolute threshold
+    # would not:
+    #     plates            1.13  1.14  2.03  2.15
+    #     other candidates  0.52  0.53
+    #     best candidate in a frame with no plate at all   0.84
+    # 1.0 clears both sides. Lower it if a plate in shadow gets dropped.
+    min_relative_brightness: 1.0
+
     # --- validation -----------------------------------------------------
     plate_regex: "^\\d{2,3}[가-힣]\\d{4}$"   # 12가3456 and 123가4567
     require_legal_syllable: true    # only the 40 syllables plates actually use

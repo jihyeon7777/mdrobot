@@ -159,7 +159,8 @@ class PlateOcrNode(Node):
         self.declare_parameter("offset_from_detection", True)
         self.declare_parameter("detect_only", False)
         self.declare_parameter("width_ratio_range", [0.05, 0.75])
-        self.declare_parameter("band_close_width", 41)
+        self.declare_parameter("band_close_width", 121)
+        self.declare_parameter("min_relative_brightness", 1.0)
 
         rate = float(self.get_parameter("ocr_rate").value)
         if rate <= 0.0:
@@ -202,6 +203,8 @@ class PlateOcrNode(Node):
             width_ratio_range=tuple(  # type: ignore[arg-type]
                 float(v) for v in self.get_parameter("width_ratio_range").value),
             band_close_width=int(self.get_parameter("band_close_width").value),
+            min_relative_brightness=float(
+                self.get_parameter("min_relative_brightness").value),
         )
 
         self._exposure = ExposureController(

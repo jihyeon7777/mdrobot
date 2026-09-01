@@ -176,6 +176,15 @@ class ReadSettings:
     # fills the frame, and a fifth-of-a-frame error in the offset steers the
     # machine off the plate exactly when it is closest to it.
     band_close_width: int = 121
+    # A plate is a bright panel; the things that compete with it — a shelf edge,
+    # the side of a box — are not. Measured as the band's mean brightness over
+    # the searched area's, which stays meaningful when the lighting or the
+    # exposure changes, where an absolute threshold would not:
+    #     plates            1.13  1.14  2.03  2.15
+    #     other candidates  0.52  0.53
+    #     a frame with no plate in it, best candidate  0.84
+    # 1.0 clears both sides. Lower it if a plate in shadow is being dropped.
+    min_relative_brightness: float = 1.0
 
     def __post_init__(self) -> None:
         if self.detector not in DETECTORS:
@@ -357,11 +366,16 @@ def _textband_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
     frame_width = gray.shape[1]
     narrow, wide = settings.width_ratio_range
 
+    scene_mean = float(gray.mean()) or 1.0
+
     def plausible(box: Region) -> bool:
         x, y, w, h = box
-        return (w * h >= min_area and w >= 100 and h >= 16
+        if not (w * h >= min_area and w >= 100 and h >= 16
                 and low <= w / max(h, 1) <= high
-                and narrow <= w / frame_width <= wide)
+                and narrow <= w / frame_width <= wide):
+            return False
+        band = gray[y : y + h, x : x + w]
+        return band.mean() / scene_mean >= settings.min_relative_brightness
 
     regions = [
         box for box in (cv2.boundingRect(contour) for contour in contours)

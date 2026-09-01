@@ -74,7 +74,9 @@ def main() -> int:
     ap.add_argument("--roi-height", type=int, default=700,
                     help="rows from the top to search; the floor must be below it")
     ap.add_argument("--no-roi", action="store_true")
-    ap.add_argument("--ocr", action="store_true", help="also read the plate (slow)")
+    ap.add_argument("--ocr", action="store_true",
+                    help="read the plate on every frame. Slow enough that the view "
+                         "stops being live — press o for a single read instead")
     ap.add_argument("--show-width", type=int, default=1280, help="window width")
     ap.add_argument("--exposure", type=int, default=0,
                     help="manual exposure in 100us units; 0 leaves the camera on "
@@ -113,8 +115,11 @@ def main() -> int:
     use_roi = not args.no_roi
     use_ocr = args.ocr
     show_all = args.all
+    once = False          # o requests one read, then the view goes back to fast
+    last_read = ""
     reader = None
-    print("q quit   r ROI   o OCR   a all candidates   [ ] exposure   s save")
+    print("q quit   r ROI   o read once (O = always)   a all candidates"
+          "   [ ] exposure   s save")
 
     frames = 0
     while True:
@@ -133,15 +138,16 @@ def main() -> int:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         h, w = gray.shape
         roi = (0, 0, w, min(args.roi_height, h)) if use_roi else None
-        settings = ReadSettings(roi=roi, detector="textband", detect_only=not use_ocr,
+        reading = use_ocr or once
+        settings = ReadSettings(roi=roi, detector="textband", detect_only=not reading,
                                 strategy="split", syllable_source="template",
                                 preprocess="none", upscale=3.0, psm=7,
                                 # Only while looking: with OCR on, every extra
                                 # candidate is another Tesseract pass.
-                                max_candidates=8 if (show_all and not use_ocr) else 3)
+                                max_candidates=8 if (show_all and not reading) else 3)
 
         text = ""
-        if use_ocr:
+        if reading:
             if reader is None:
                 from mdrobot_plate_ocr.ocr import make_engine
                 reader = PlateReader(make_engine("tesserocr", lang="kor"), settings,
@@ -150,6 +156,8 @@ def main() -> int:
             result = reader.read(frame)
             regions = [result.best.region] if result.best else []
             text = result.text or (result.best.ocr.text.strip() if result.best else "")
+            last_read = text or "(nothing)"
+            once = False
         else:
             regions = find_regions(gray, settings)
         elapsed = (time.perf_counter() - started) * 1e3
@@ -187,8 +195,8 @@ def main() -> int:
                 f"offset x {off.dx_norm:+.3f}  y {off.dy_norm:+.3f}"
                 f"   band {rw}x{rh}",
             ]
-            if use_ocr:
-                lines.append(f"read: {text or '(nothing)'}")
+            if last_read:
+                lines.append(f"read: {last_read}")
         else:
             cv2.putText(frame, "NO PLATE FOUND", (w // 2 - 260, h // 2 + 90),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.6, RED, 4, cv2.LINE_AA)
@@ -196,7 +204,7 @@ def main() -> int:
                      f"   {elapsed:5.0f}ms",
                      "nothing published — the sequence would wait"]
         lines.append(
-            f"ROI {'on' if use_roi else 'OFF'}  OCR {'on' if use_ocr else 'off'}"
+            f"ROI {'on' if use_roi else 'OFF'}  OCR {'always' if use_ocr else 'on o'}"
             f"  all {'on' if show_all else 'off'}  candidates {len(regions)}"
             f"  exposure {exposure or 'auto'}"
             f"   [q] [r] [o] [a] [ ] [s]")
@@ -214,6 +222,11 @@ def main() -> int:
         if key == ord("r"):
             use_roi = not use_roi
         if key == ord("o"):
+            # One read on the next frame. Holding OCR on drops the view to a
+            # few frames a second, which makes tuning the exposure by eye
+            # impossible — the thing o is usually wanted for.
+            once = True
+        if key == ord("O"):
             use_ocr = not use_ocr
         if key == ord("a"):
             show_all = not show_all
