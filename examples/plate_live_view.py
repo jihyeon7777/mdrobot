@@ -21,6 +21,7 @@ Nothing else may hold the camera: stop the plate_ocr node first.
     python3 examples/plate_live_view.py --ocr        # also try to read it
     python3 examples/plate_live_view.py --no-roi     # see what the ROI hides
     python3 examples/plate_live_view.py --rotate 180 # camera mounted upside down
+    python3 examples/plate_live_view.py --flip-display  # only the window is wrong
 
 Keys:  q quit   r toggle the ROI   o toggle OCR   s save the frame
 """
@@ -75,6 +76,12 @@ def main() -> int:
     ap.add_argument("--no-roi", action="store_true")
     ap.add_argument("--ocr", action="store_true", help="also read the plate (slow)")
     ap.add_argument("--show-width", type=int, default=1280, help="window width")
+    ap.add_argument("--flip-display", action="store_true",
+                    help="turn the WINDOW the other way up. Display only — the "
+                         "detector still works on the frame as captured, so the "
+                         "offset numbers keep the sign the robot uses. Use "
+                         "--rotate 180 instead if the camera itself delivers an "
+                         "upside-down picture")
     args = ap.parse_args()
 
     # The package's own Camera, not a bare VideoCapture: the V4L2 queue on this
@@ -166,7 +173,11 @@ def main() -> int:
         banner(frame, lines)
 
         scale = args.show_width / w
-        cv2.imshow(window, cv2.resize(frame, (args.show_width, int(h * scale))))
+        shown = cv2.resize(frame, (args.show_width, int(h * scale)))
+        if args.flip_display:
+            # After the drawing, so the boxes stay on the thing they mark.
+            shown = cv2.rotate(shown, cv2.ROTATE_180)
+        cv2.imshow(window, shown)
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             break
