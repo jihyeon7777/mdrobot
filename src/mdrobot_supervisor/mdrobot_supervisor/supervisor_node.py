@@ -27,7 +27,12 @@ Interface
 ---------
 Parameters (see config/supervisor.yaml for the full annotated set):
   rate (float=50.0)          Hz; decision and publish rate
-  rc_timeout (float=0.3)     s without RC before everything is commanded to stop
+  rc_timeout (float=0.3)     s without RC before the wheels are commanded to stop
+  auto_rc_grace (float=2.0)  extra s of RC silence a running sequence rides out
+                             before it aborts; the wheels stop at rc_timeout
+                             regardless. The board's USB drops for a few tenths
+                             of a second often enough that aborting on one threw
+                             away runs and dropped the actuator mid-stroke.
   max_linear_x/max_linear_y/max_angular_z  what full stick deflection asks for.
                              max_linear_y is used by mecanum mode, max_angular_z
                              by base mode
@@ -155,6 +160,7 @@ class SupervisorNode(Node):
 
         self.declare_parameter("rate", 50.0)
         self.declare_parameter("rc_timeout", 0.3)
+        self.declare_parameter("auto_rc_grace", 2.0)
         self.declare_parameter("pwm_min", 1000)
         self.declare_parameter("pwm_mid", 1500)
         self.declare_parameter("pwm_max", 2000)
@@ -218,6 +224,8 @@ class SupervisorNode(Node):
         self.declare_parameter("odom_max_speed_factor", 4.0)
 
         self.rc_timeout = float(self.get_parameter("rc_timeout").value)
+        self.auto_rc_grace = float(
+            self.get_parameter("auto_rc_grace").value)
         self.pwm_min = int(self.get_parameter("pwm_min").value)
         self.pwm_mid = int(self.get_parameter("pwm_mid").value)
         self.pwm_max = int(self.get_parameter("pwm_max").value)
@@ -570,21 +578,58 @@ class SupervisorNode(Node):
             age = now - self._rc_wall if self._rc_wall else None
 
         if rc is None or age is None or age > self.rc_timeout:
+            # The wheels stop the instant the link goes quiet, always. A running
+            # sequence is treated separately: the board's USB drops for a few
+            # tenths of a second fairly often, and killing a drill-and-spray run
+            # over one of those — dropping the actuator mid-stroke with it — is
+            # worse than riding it out with the wheels held still.
+            running = (
+                self._was_autonomous and self.sequence.phase not in TERMINAL
+            )
+            riding = (
+                running
+                and age is not None
+                and age <= self.rc_timeout + self.auto_rc_grace
+            )
             if not self._stopped:
                 self._stopped = True
                 self.get_logger().warn(
-                    "no ~/rc within rc_timeout; commanding stop and idle equipment"
+                    "no ~/rc within rc_timeout; wheels stopped"
+                    + ("; sequence riding out the gap" if riding else
+                       " and equipment idle")
                 )
-            if self._was_autonomous and self.sequence.phase not in TERMINAL:
+            if riding:
+                self._auto_lift = 0
+                self._auto_actuator = 0
+                self._auto_solenoid = 0
+                # brake reads 0: a pressed brake would have aborted the run
+                # before the link went quiet.
+                _, _, _, auto_drill = self._autonomous(now, 0)
+                lift = self._run_guard(
+                    "lift", self._auto_lift * self.lift_speed,
+                    self.lift_max_run, now)
+                actuator = self._run_guard(
+                    "actuator", max(-1, min(1, self._auto_actuator)),
+                    self.actuator_max_run, now)
+                self._publish(
+                    [0.0] * 4,
+                    [lift, 0, 1 if auto_drill else 0, actuator,
+                     1 if self._auto_solenoid else 0],
+                    "rc-gap",
+                )
+                self._clamp_k = 1.0
+                return
+            if running:
                 # Abort, do NOT reset. Resetting here re-armed the sequence the
-                # moment the link came back, so a 0.3 s dropout — and they have
-                # been frequent — silently ran the whole thing again from the
-                # top, drill included. Aborting is terminal: it takes the
-                # operator leaving autonomous and coming back to start another.
+                # moment the link came back, so a dropout silently ran the whole
+                # thing again from the top, drill included. Aborting is terminal:
+                # it takes the operator leaving autonomous and coming back to
+                # start another.
                 self.sequence.abort("RC link lost")
                 self.get_logger().error(
-                    "autonomous aborted: RC link lost. It will not restart on its "
-                    "own — switch out of autonomous and back to run it again."
+                    f"autonomous aborted: no RC for {age:.1f} s, past the "
+                    f"{self.auto_rc_grace:.1f} s grace. It will not restart on "
+                    "its own — switch out of autonomous and back to run it again."
                 )
                 self._publish_phase(self.sequence.phase.value)
             self._armed = not self.require_neutral_start

@@ -13,6 +13,11 @@
     # 0.19 m/s, so 10 Hz is far quicker than it can respond anyway.
     rate: 10.0              # Hz; decision and publish rate
     rc_timeout: 0.3         # s without ~/rc before drive stops and equipment idles
+    # Extra seconds of RC silence a *running* sequence rides out before it
+    # aborts. The wheels still stop at rc_timeout. The board's USB goes
+    # quiet for 0.3-0.8 s often enough that aborting on one gap threw away
+    # runs mid-spray and dropped the actuator with them.
+    auto_rc_grace: 2.0
 
     # ── operator sticks ────────────────────────────────────────────────────
     # steer and throttle are the two channels confirmed to carry pulse widths.
