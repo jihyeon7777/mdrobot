@@ -156,6 +156,17 @@
     # expired, so the machine still stops auto_entry_distance past the plate
     # however long it waits to be sure.
     auto_plate_timeout: 2.0
+
+    # How wide the plate must have got, as a fraction of the frame, before
+    # losing it counts as "we are under the car" rather than "the detector
+    # dropped out again". Measured stationary with the plate plainly in view,
+    # detection ran at 0.43 Hz with gaps up to 5.5 s -- five of them longer
+    # than auto_plate_timeout in 30 s -- so without this gate the sequence
+    # declared arrival and drilled roughly every six seconds, wherever it
+    # stood. At the position that was wrongly triggering, the plate measured
+    # 0.31. Read the real value off a good run: the phase message prints the
+    # width at the moment the plate is lost.
+    auto_min_approach_width: 0.45
     auto_align_gain: 0.4         # strafe m/s per unit of normalised plate offset
     auto_align_tolerance: 0.08   # |offset.x| this small counts as centred
     auto_approach_speed: 0.08    # m/s forward while aligning

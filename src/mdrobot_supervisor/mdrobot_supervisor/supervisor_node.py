@@ -351,6 +351,7 @@ class SupervisorNode(Node):
         self._clamp_k = 1.0
         self._rejected = 0
         self._plate_x: float | None = None
+        self._plate_w: float | None = None
         self._plate_wall = 0.0
         self._hole_x: float | None = None
         self._hole_y: float | None = None
@@ -409,6 +410,10 @@ class SupervisorNode(Node):
     def _on_plate(self, msg: Point) -> None:
         """Latch where the plate sits, as a normalised error signal."""
         self._plate_x = float(msg.x)
+        # z is the plate's width as a fraction of the frame — the range proxy
+        # the sequence uses to tell arriving under the car apart from the
+        # detector simply dropping out.
+        self._plate_w = float(msg.z)
         self._plate_wall = time.monotonic()
 
     def _on_hole(self, msg: Point) -> None:
@@ -787,6 +792,7 @@ class SupervisorNode(Node):
         action = self.sequence.step(Observation(
             now=now,
             plate_offset_x=self._plate_x,
+            plate_width=self._plate_w,
             plate_age=plate_age,
             distance=distance,
             hole_offset_x=self._hole_x,

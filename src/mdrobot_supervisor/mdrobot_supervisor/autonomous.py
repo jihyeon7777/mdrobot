@@ -78,6 +78,12 @@ class AutonomousConfig:
     """Tuning for the sequence. Distances in metres, speeds in m/s."""
 
     plate_timeout: float = 0.5  # s without a plate reading before it counts as lost
+    # Losing the plate means "we are under the car" only if the plate had got
+    # close first. The detector drops out for seconds at a time on a plate that
+    # is plainly in frame, and every one of those dropouts used to read as an
+    # arrival and fire the drill wherever the machine happened to be. A plate
+    # that vanishes while still narrow has not been reached, it has been lost.
+    min_approach_width: float = 0.45
     align_gain: float = 0.4  # strafe m/s per unit of normalised plate offset
     align_tolerance: float = 0.08  # |offset.x| this small counts as centred
     approach_speed: float = 0.08  # m/s forward while aligning
@@ -141,7 +147,8 @@ class AutonomousConfig:
                 f"hold_pulse_on {self.hold_pulse_on} exceeds hold_pulse_period "
                 f"{self.hold_pulse_period}; use a period of 0 to hold continuously"
             )
-        for name in ("plate_timeout", "align_gain", "approach_speed",
+        for name in ("plate_timeout", "min_approach_width", "align_gain",
+                     "approach_speed",
                      "entry_distance", "entry_speed", "drill_seconds",
                      "lift_up_seconds", "lift_down_seconds",
                      "hole_timeout", "hole_max_speed",
@@ -168,6 +175,9 @@ class Observation:
     plate_offset_x: float | None  # normalised [-1, 1]; positive = plate right of centre
     plate_age: float | None  # seconds since the last plate reading, None if never
     distance: float  # forward travel from the wheel encoders, metres, monotonic-ish
+    # The plate's width as a fraction of the frame: the only range proxy there
+    # is, and what tells an arrival apart from a dropped detection.
+    plate_width: float | None = None
     # Upward camera: where the drilled hole sits in the frame, normalised [-1, 1].
     hole_offset_x: float | None = None
     hole_offset_y: float | None = None
@@ -205,6 +215,7 @@ class AutonomousSequence:
         # expire, so plate_timeout can be as long as detection needs without
         # moving the point the machine stops at.
         self._last_seen_at = 0.0
+        self._widest = 0.0
         self._message = "waiting for a plate"
 
     def abort(self, why: str) -> None:
@@ -237,21 +248,35 @@ class AutonomousSequence:
                 self.abort(f"align exceeded {cfg.max_align_seconds:.0f} s")
                 return Action(phase=self.phase, message=self._message)
             if not plate_fresh:
-                # Losing the plate IS the trigger to go under: it drops out of
-                # view exactly as the machine reaches the car. Measure from where
-                # it was last SEEN, though — the machine has been driving through
-                # the whole timeout, and counting from here would add that
-                # distance to every entry.
+                # Losing the plate IS the trigger to go under — but only once it
+                # has got close. Check how wide it was when last seen: a plate
+                # that was still narrow is a dropped detection, not an arrival.
+                if self._widest < cfg.min_approach_width:
+                    self._message = (
+                        f"plate lost at width {self._widest:.2f} < "
+                        f"{cfg.min_approach_width:.2f}; too far to be under the "
+                        f"car, waiting for it to come back"
+                    )
+                    # Keep closing straight ahead. There is no offset to steer
+                    # on, so do not strafe on a stale one.
+                    return Action(vx=cfg.approach_speed, phase=self.phase,
+                                  message=self._message)
+                # Measure from where it was last SEEN: the machine has been
+                # driving through the whole timeout, and counting from here
+                # would add that distance to every entry.
                 self._entry_mark = self._last_seen_at or obs.distance
                 drifted = obs.distance - self._entry_mark
                 self._enter(Phase.ENTER, obs.now,
-                            f"plate lost {drifted:.2f} m ago; "
+                            f"plate lost at width {self._widest:.2f}, "
+                            f"{drifted:.2f} m ago; "
                             f"entering {cfg.entry_distance:.2f} m from there")
                 return Action(vx=cfg.entry_speed, phase=self.phase,
                               message=self._message)
             offset = obs.plate_offset_x
             assert offset is not None  # plate_fresh guarantees it
             self._last_seen_at = obs.distance
+            if obs.plate_width is not None:
+                self._widest = max(self._widest, obs.plate_width)
             # +y is LEFT and a positive offset means the plate sits to the RIGHT,
             # so the machine has to strafe right: negate.
             vy = 0.0 if abs(offset) <= cfg.align_tolerance else -cfg.align_gain * offset
