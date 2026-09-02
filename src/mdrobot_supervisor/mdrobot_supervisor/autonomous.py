@@ -117,9 +117,13 @@ class AutonomousConfig:
     # So hold it in pulses instead: drive for hold_pulse_on out of every
     # hold_pulse_period. It settles a little between pulses rather than fighting
     # the stop, and draws a fraction of the current.
+    # hold_pulse_period 0 holds it continuously, which is what manual driving
+    # does and what the actuator turned out to be fine with once the run guard
+    # stopped cutting it off. Set a period to pulse instead if it starts hunting
+    # against its end stop again.
     hold_actuator_during_spray: bool = True
     hold_pulse_on: float = 0.4
-    hold_pulse_period: float = 2.5
+    hold_pulse_period: float = 0.0
     # The upward camera is not fitted, so nothing publishes a hole offset. With
     # this off the sequence finishes at the drill instead of stalling in
     # FIND_HOLE until the timeout. Turn it on when the camera and its detector
@@ -132,10 +136,10 @@ class AutonomousConfig:
     max_hole_align_seconds: float = 60.0
 
     def __post_init__(self) -> None:
-        if self.hold_pulse_on > self.hold_pulse_period:
+        if self.hold_pulse_period and self.hold_pulse_on > self.hold_pulse_period:
             raise ValueError(
                 f"hold_pulse_on {self.hold_pulse_on} exceeds hold_pulse_period "
-                f"{self.hold_pulse_period}, which would just be a continuous hold"
+                f"{self.hold_pulse_period}; use a period of 0 to hold continuously"
             )
         for name in ("plate_timeout", "align_gain", "approach_speed",
                      "entry_distance", "entry_speed", "drill_seconds",
@@ -361,7 +365,10 @@ class AutonomousSequence:
             # sitting stalled.
             pushing = False
             if cfg.hold_actuator_during_spray:
-                pushing = (elapsed % cfg.hold_pulse_period) < cfg.hold_pulse_on
+                pushing = (
+                    True if cfg.hold_pulse_period <= 0
+                    else (elapsed % cfg.hold_pulse_period) < cfg.hold_pulse_on
+                )
             self._message = (
                 f"spraying {elapsed:.1f}/{cfg.spray_seconds:.1f} s"
                 f"{', holding' if pushing else ''}"

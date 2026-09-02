@@ -222,8 +222,12 @@
     # of the hole, do the opposite. The real fix is mechanical: an actuator that
     # holds its own position, or a latch.
     auto_hold_actuator_during_spray: true
-    auto_hold_pulse_on: 0.4        # s driving
-    auto_hold_pulse_period: 2.5    # s between the start of each push
+    # 0 holds it continuously — which is what manual driving does, and manual
+    # holds fine now that the run guard stopped cutting the stroke off. Pulsing
+    # let it sag between pushes. Set a period only if it starts hunting against
+    # the end stop again.
+    auto_hold_pulse_on: 0.4        # s driving, when pulsing
+    auto_hold_pulse_period: 0.0    # s between pushes; 0 = hold continuously
     auto_spray_seconds: 30.0      # solenoid open, water through the hole
     auto_max_find_hole_seconds: 30.0
     auto_max_hole_align_seconds: 60.0
