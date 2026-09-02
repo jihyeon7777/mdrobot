@@ -107,12 +107,19 @@ class AutonomousConfig:
     actuator_seconds: float = 12.0  # actuator up, into the hole — its full stroke
     spray_seconds: float = 30.0  # solenoid open, water through the hole
     retract_seconds: float = 12.0  # actuator back down once the valve is shut
-    # Keep driving the actuator up through the spray. It does not hold position
-    # unpowered — measured: the moment the command goes to 0 it comes straight
-    # back down — so letting go here would pull it out of the hole and put the
-    # water somewhere else. The cost is a stalled motor for the whole spray,
-    # which is real current on a supply that has browned out before.
+    # The actuator does not hold position unpowered — the moment the command
+    # goes to 0 it comes straight back down — so the spray has to keep it up or
+    # the water leaves the hole it was just placed in. But driving it
+    # continuously against its end stop made it hunt: it sagged and drove and
+    # sagged again, two or three times, which is a stalled motor browning out
+    # and recovering (or its own end-of-travel protection cycling).
+    #
+    # So hold it in pulses instead: drive for hold_pulse_on out of every
+    # hold_pulse_period. It settles a little between pulses rather than fighting
+    # the stop, and draws a fraction of the current.
     hold_actuator_during_spray: bool = True
+    hold_pulse_on: float = 0.4
+    hold_pulse_period: float = 2.5
     # The upward camera is not fitted, so nothing publishes a hole offset. With
     # this off the sequence finishes at the drill instead of stalling in
     # FIND_HOLE until the timeout. Turn it on when the camera and its detector
@@ -125,6 +132,11 @@ class AutonomousConfig:
     max_hole_align_seconds: float = 60.0
 
     def __post_init__(self) -> None:
+        if self.hold_pulse_on > self.hold_pulse_period:
+            raise ValueError(
+                f"hold_pulse_on {self.hold_pulse_on} exceeds hold_pulse_period "
+                f"{self.hold_pulse_period}, which would just be a continuous hold"
+            )
         for name in ("plate_timeout", "align_gain", "approach_speed",
                      "entry_distance", "entry_speed", "drill_seconds",
                      "lift_up_seconds", "lift_down_seconds",
@@ -343,12 +355,18 @@ class AutonomousSequence:
             if elapsed >= cfg.spray_seconds:
                 self._enter(Phase.RETRACT, obs.now, "valve shut; lowering the actuator")
                 return Action(actuator=-1, phase=self.phase, message=self._message)
-            self._message = f"spraying {elapsed:.1f}/{cfg.spray_seconds:.1f} s"
-            # Still pushing up unless told otherwise: this actuator falls the
-            # instant it is not driven, and it has to stay in the hole for the
-            # water to go anywhere useful.
-            return Action(solenoid=1,
-                          actuator=1 if cfg.hold_actuator_during_spray else 0,
+            # Pulsed, not continuous: the actuator falls the instant it is not
+            # driven, but holding it against the stop for thirty seconds made it
+            # hunt. A short push every couple of seconds keeps it there without
+            # sitting stalled.
+            pushing = False
+            if cfg.hold_actuator_during_spray:
+                pushing = (elapsed % cfg.hold_pulse_period) < cfg.hold_pulse_on
+            self._message = (
+                f"spraying {elapsed:.1f}/{cfg.spray_seconds:.1f} s"
+                f"{', holding' if pushing else ''}"
+            )
+            return Action(solenoid=1, actuator=1 if pushing else 0,
                           phase=self.phase, message=self._message)
 
         if self.phase is Phase.RETRACT:

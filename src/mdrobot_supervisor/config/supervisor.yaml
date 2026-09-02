@@ -207,13 +207,23 @@
     # about 60% of the way up before the sequence moved on.
     auto_actuator_seconds: 12.0
 
-    # Keep driving the actuator up through the spray. MEASURED: this actuator
-    # does not hold position unpowered — the moment the command goes to 0 it
-    # comes straight back down — so letting go would pull it out of the hole and
-    # put the water somewhere else. The cost is a stalled motor for the whole
-    # spray, which is real current on a supply that has browned out before:
-    # watch ctrl1_volts / ctrl2_volts the first few runs.
+    # The actuator does not hold position unpowered — MEASURED: the moment the
+    # command goes to 0 it comes straight back down — so the spray has to keep
+    # it up or the water leaves the hole it was just placed in.
+    #
+    # Driving it continuously against the stop made it hunt instead: it sagged
+    # and drove and sagged again, two or three times, which is a stalled motor
+    # browning out and recovering (or the actuator's own end-of-travel
+    # protection cycling). So it is held in PULSES — driven for hold_pulse_on
+    # out of every hold_pulse_period. It settles slightly between pushes rather
+    # than fighting the stop, at roughly a sixth of the current.
+    #
+    # If it still hunts, shorten the pulse or lengthen the gap. If it sags out
+    # of the hole, do the opposite. The real fix is mechanical: an actuator that
+    # holds its own position, or a latch.
     auto_hold_actuator_during_spray: true
+    auto_hold_pulse_on: 0.4        # s driving
+    auto_hold_pulse_period: 2.5    # s between the start of each push
     auto_spray_seconds: 30.0      # solenoid open, water through the hole
     auto_max_find_hole_seconds: 30.0
     auto_max_hole_align_seconds: 60.0

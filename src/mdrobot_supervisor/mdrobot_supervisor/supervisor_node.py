@@ -206,6 +206,8 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_hole_max_speed", 0.05)
         self.declare_parameter("auto_actuator_seconds", 12.0)
         self.declare_parameter("auto_hold_actuator_during_spray", True)
+        self.declare_parameter("auto_hold_pulse_on", 0.4)
+        self.declare_parameter("auto_hold_pulse_period", 2.5)
         self.declare_parameter("auto_spray_seconds", 30.0)
         self.declare_parameter("auto_max_find_hole_seconds", 30.0)
         self.declare_parameter("auto_max_hole_align_seconds", 60.0)
@@ -296,6 +298,9 @@ class SupervisorNode(Node):
             retract_seconds=float(self.get_parameter("auto_retract_seconds").value),
             hold_actuator_during_spray=bool(
                 self.get_parameter("auto_hold_actuator_during_spray").value),
+            hold_pulse_on=float(self.get_parameter("auto_hold_pulse_on").value),
+            hold_pulse_period=float(
+                self.get_parameter("auto_hold_pulse_period").value),
             max_align_seconds=float(self.get_parameter("auto_max_align_seconds").value),
             max_entry_seconds=float(self.get_parameter("auto_max_entry_seconds").value),
             hole_stage=bool(self.get_parameter("auto_hole_stage").value),
