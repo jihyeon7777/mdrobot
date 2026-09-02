@@ -100,11 +100,17 @@
     # dropping out mid-run looks like. Once tripped the output stays stopped
     # until the switch returns to neutral. Set 0 to disable.
     # Tune these to just over one full travel.
-    # 15 and 10: the autonomous sequence drives the lift for 10 s and the
-    # actuator for 7, so the guards have to sit above those or they would cut
-    # the working stroke short.
+    # Seconds an output may drive one way before the node stops it. Set these
+    # to just over the real stroke: the guard exists to stop a motor sitting on
+    # its end stop, and a value well above the stroke lets it stall for the
+    # difference.
+    #
+    # actuator_max_run has to clear the longest continuous push the sequence
+    # makes: 12 s raising plus 30 s holding through the spray is 42, so 48.
+    # Measured stroke is 12 s; at the old 10 the guard was cutting the actuator
+    # off mid-travel and it dropped.
     lift_max_run: 15.0
-    actuator_max_run: 10.0
+    actuator_max_run: 48.0
 
     # Limit switches stop the lift at each end. OFF because they are NOT FITTED
     # yet — with nothing to stop it the carriage runs into its hard stop and
@@ -162,7 +168,7 @@
     auto_drill_seconds: 20.0       # the bit turns this long, all told
     auto_lift_up_seconds: 10.0     # of that, the lift pushes up for the first 10
     auto_lift_down_seconds: 10.0   # lift back down, drill off
-    auto_retract_seconds: 7.0      # actuator down after the valve shuts
+    auto_retract_seconds: 12.0     # actuator down after the valve shuts
     auto_max_align_seconds: 60.0
     auto_max_entry_seconds: 60.0
 
@@ -197,7 +203,17 @@
     auto_hole_gain_x: -0.3        # m/s of vy per unit of x offset
     auto_hole_gain_y: -0.3        # m/s of vx per unit of y offset
     auto_hole_max_speed: 0.05     # m/s cap while shuffling under the car
-    auto_actuator_seconds: 7.0    # actuator up into the hole
+    # 12 s: the actuator's measured full stroke. It was 7, so it only ever got
+    # about 60% of the way up before the sequence moved on.
+    auto_actuator_seconds: 12.0
+
+    # Keep driving the actuator up through the spray. MEASURED: this actuator
+    # does not hold position unpowered — the moment the command goes to 0 it
+    # comes straight back down — so letting go would pull it out of the hole and
+    # put the water somewhere else. The cost is a stalled motor for the whole
+    # spray, which is real current on a supply that has browned out before:
+    # watch ctrl1_volts / ctrl2_volts the first few runs.
+    auto_hold_actuator_during_spray: true
     auto_spray_seconds: 30.0      # solenoid open, water through the hole
     auto_max_find_hole_seconds: 30.0
     auto_max_hole_align_seconds: 60.0

@@ -19,7 +19,8 @@ autonomous. From there:
     LIFT_DOWN   drill off, lift back down for lift_down_seconds. Nothing rises
                 again until it is clear
     RAISE       actuator up into the hole for actuator_seconds
-    SPRAY       solenoid open for spray_seconds; water through the hole
+    SPRAY       solenoid open for spray_seconds, actuator still held up; water
+                through the hole
     RETRACT     valve shut, actuator back down for retract_seconds
     DONE        hold still; the operator takes it from here
 
@@ -103,9 +104,15 @@ class AutonomousConfig:
     hole_gain_y: float = -0.3  # m/s of vx per unit of y offset
     hole_max_speed: float = 0.05  # m/s cap while shuffling under the car
 
-    actuator_seconds: float = 7.0  # actuator up, into the hole
+    actuator_seconds: float = 12.0  # actuator up, into the hole — its full stroke
     spray_seconds: float = 30.0  # solenoid open, water through the hole
-    retract_seconds: float = 7.0  # actuator back down once the valve is shut
+    retract_seconds: float = 12.0  # actuator back down once the valve is shut
+    # Keep driving the actuator up through the spray. It does not hold position
+    # unpowered — measured: the moment the command goes to 0 it comes straight
+    # back down — so letting go here would pull it out of the hole and put the
+    # water somewhere else. The cost is a stalled motor for the whole spray,
+    # which is real current on a supply that has browned out before.
+    hold_actuator_during_spray: bool = True
     # The upward camera is not fitted, so nothing publishes a hole offset. With
     # this off the sequence finishes at the drill instead of stalling in
     # FIND_HOLE until the timeout. Turn it on when the camera and its detector
@@ -337,9 +344,12 @@ class AutonomousSequence:
                 self._enter(Phase.RETRACT, obs.now, "valve shut; lowering the actuator")
                 return Action(actuator=-1, phase=self.phase, message=self._message)
             self._message = f"spraying {elapsed:.1f}/{cfg.spray_seconds:.1f} s"
-            # The actuator is left at 0, not driven: it has reached the hole, and
-            # holding +1 against a hard stop would stall it for the whole spray.
-            return Action(solenoid=1, phase=self.phase, message=self._message)
+            # Still pushing up unless told otherwise: this actuator falls the
+            # instant it is not driven, and it has to stay in the hole for the
+            # water to go anywhere useful.
+            return Action(solenoid=1,
+                          actuator=1 if cfg.hold_actuator_during_spray else 0,
+                          phase=self.phase, message=self._message)
 
         if self.phase is Phase.RETRACT:
             # Valve already shut — solenoid is 0 from here, so the water stops
