@@ -177,6 +177,11 @@ class AutonomousSequence:
         self.phase = Phase.WAIT_PLATE
         self._phase_started = 0.0
         self._entry_mark = 0.0
+        # Where the machine was when the plate was last actually seen. The blind
+        # entry is measured from there, not from where the timeout happened to
+        # expire, so plate_timeout can be as long as detection needs without
+        # moving the point the machine stops at.
+        self._last_seen_at = 0.0
         self._message = "waiting for a plate"
 
     def abort(self, why: str) -> None:
@@ -200,6 +205,7 @@ class AutonomousSequence:
 
         if self.phase is Phase.WAIT_PLATE:
             if plate_fresh:
+                self._last_seen_at = obs.distance
                 self._enter(Phase.ALIGN, obs.now, "plate acquired; aligning")
             return Action(phase=self.phase, message=self._message)
 
@@ -209,14 +215,20 @@ class AutonomousSequence:
                 return Action(phase=self.phase, message=self._message)
             if not plate_fresh:
                 # Losing the plate IS the trigger to go under: it drops out of
-                # view exactly as the machine reaches the car.
-                self._entry_mark = obs.distance
+                # view exactly as the machine reaches the car. Measure from where
+                # it was last SEEN, though — the machine has been driving through
+                # the whole timeout, and counting from here would add that
+                # distance to every entry.
+                self._entry_mark = self._last_seen_at or obs.distance
+                drifted = obs.distance - self._entry_mark
                 self._enter(Phase.ENTER, obs.now,
-                            f"plate lost; entering {cfg.entry_distance:.2f} m")
+                            f"plate lost {drifted:.2f} m ago; "
+                            f"entering {cfg.entry_distance:.2f} m from there")
                 return Action(vx=cfg.entry_speed, phase=self.phase,
                               message=self._message)
             offset = obs.plate_offset_x
             assert offset is not None  # plate_fresh guarantees it
+            self._last_seen_at = obs.distance
             # +y is LEFT and a positive offset means the plate sits to the RIGHT,
             # so the machine has to strafe right: negate.
             vy = 0.0 if abs(offset) <= cfg.align_tolerance else -cfg.align_gain * offset

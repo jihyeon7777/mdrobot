@@ -567,10 +567,18 @@ class SupervisorNode(Node):
                 self.get_logger().warn(
                     "no ~/rc within rc_timeout; commanding stop and idle equipment"
                 )
-            if self._was_autonomous:
-                self.sequence.reset()
-                self._was_autonomous = False
-                self._publish_phase("")
+            if self._was_autonomous and self.sequence.phase not in TERMINAL:
+                # Abort, do NOT reset. Resetting here re-armed the sequence the
+                # moment the link came back, so a 0.3 s dropout — and they have
+                # been frequent — silently ran the whole thing again from the
+                # top, drill included. Aborting is terminal: it takes the
+                # operator leaving autonomous and coming back to start another.
+                self.sequence.abort("RC link lost")
+                self.get_logger().error(
+                    "autonomous aborted: RC link lost. It will not restart on its "
+                    "own — switch out of autonomous and back to run it again."
+                )
+                self._publish_phase(self.sequence.phase.value)
             self._armed = not self.require_neutral_start
             self._publish([0.0] * 4, IDLE_COMMAND, "unknown")
             self._clamp_k = 1.0

@@ -135,11 +135,16 @@
     # than most — the rollers are meant to — so that distance is an estimate,
     # not a measurement, and it decides where a hole gets drilled. Keep the
     # distance short, the speed low, and treat the timeouts as real guards.
-    # s without a plate reading before it counts as lost. Back to 0.5 now that
-    # the reader runs detect_only and the offsets arrive an order of magnitude
-    # faster — 0.5 s is five missed frames rather than one. Losing the plate is
-    # what triggers the blind entry, so noticing late means overshooting.
-    auto_plate_timeout: 0.5
+    # s without a plate reading before it counts as lost. 2.0, because detection
+    # drops out for a beat or two while the machine moves and a short timeout
+    # called the plate lost while it was still in plain view — the entry then
+    # started metres early.
+    #
+    # Raising it costs nothing in accuracy any more: the blind entry is measured
+    # from where the plate was last actually SEEN, not from where the timeout
+    # expired, so the machine still stops auto_entry_distance past the plate
+    # however long it waits to be sure.
+    auto_plate_timeout: 2.0
     auto_align_gain: 0.4         # strafe m/s per unit of normalised plate offset
     auto_align_tolerance: 0.08   # |offset.x| this small counts as centred
     auto_approach_speed: 0.08    # m/s forward while aligning
@@ -147,7 +152,7 @@
     # real value is the distance from where the plate leaves the camera's view
     # to the centre of the underbody, and has to be measured on the target
     # vehicle before this drives under anything.
-    auto_entry_distance: 0.2
+    auto_entry_distance: 0.1
     auto_entry_speed: 0.08       # m/s forward while entering
     # The working sequence once the machine is under the car. The lift and the
     # drill start together — the bit spins while the lift pushes it up into the
