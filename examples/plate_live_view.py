@@ -23,7 +23,8 @@ Nothing else may hold the camera: stop the plate_ocr node first.
     python3 examples/plate_live_view.py --rotate 180 # camera mounted upside down
     python3 examples/plate_live_view.py --flip-display  # only the window is wrong
 
-Keys:  q quit   r toggle the ROI   o toggle OCR   s save the frame
+Keys:  q quit   r ROI   o read once   a all candidates   m mask view
+       [ ] exposure   s save the frame
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from mdrobot_plate_ocr.reader import (  # noqa: E402
     estimate_glyph_height,
     find_regions,
     offset_from_centre,
+    textband_mask,
 )
 
 GREEN, RED, BLUE, WHITE, BLACK = ((0, 220, 0), (0, 0, 255), (255, 160, 0),
@@ -117,9 +119,13 @@ def main() -> int:
     show_all = args.all
     once = False          # o requests one read, then the view goes back to fast
     last_read = ""
+    # m cycles the picture: the camera, or the binary mask the detector actually
+    # decides from. When detection comes and goes on a plate that is plainly in
+    # frame, the mask is where the answer is.
+    view = "camera"
     reader = None
     print("q quit   r ROI   o read once (O = always)   a all candidates"
-          "   [ ] exposure   s save")
+          "   m mask view   [ ] exposure   s save")
 
     frames = 0
     while True:
@@ -161,6 +167,17 @@ def main() -> int:
         else:
             regions = find_regions(gray, settings)
         elapsed = (time.perf_counter() - started) * 1e3
+
+        if view == "mask":
+            search = gray[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[2]] \
+                if roi is not None else gray
+            mask = textband_mask(search, settings)
+            shown_gray = frame.copy()
+            shown_gray[:] = 0
+            painted = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+            oy, ox = (roi[1], roi[0]) if roi is not None else (0, 0)
+            shown_gray[oy : oy + painted.shape[0], ox : ox + painted.shape[1]] = painted
+            frame = shown_gray
 
         if roi is not None:
             cv2.rectangle(frame, (roi[0], roi[1]),
@@ -206,7 +223,7 @@ def main() -> int:
         lines.append(
             f"ROI {'on' if use_roi else 'OFF'}  OCR {'always' if use_ocr else 'on o'}"
             f"  all {'on' if show_all else 'off'}  candidates {len(regions)}"
-            f"  exposure {exposure or 'auto'}"
+            f"  view {view}  exposure {exposure or 'auto'}"
             f"   [q] [r] [o] [a] [ ] [s]")
         banner(frame, lines)
 
@@ -230,6 +247,8 @@ def main() -> int:
             use_ocr = not use_ocr
         if key == ord("a"):
             show_all = not show_all
+        if key == ord("m"):
+            view = "mask" if view == "camera" else "camera"
         if key in (ord("["), ord("]")):
             # Manual exposure, in the same 100us units the node uses.
             exposure = max(1, (exposure or 60) + (10 if key == ord("]") else -10))

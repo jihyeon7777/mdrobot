@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """ROS 2 node: read a Korean licence plate from a USB camera, publish the text.
 
-Deliberately publishes **no images**. The robot is reached over SSH, and
-streaming camera frames to a remote RViz was too slow to see anything — which
-is the whole reason this node exists. Look at ``debug_dir/latest.jpg`` in an
-editor instead; it is written atomically and carries the focus score, the glyph
-height and the raw OCR text as an overlay.
+Publishes no images by default. The robot is reached over SSH, and streaming
+camera frames to a remote RViz was too slow to see anything — which is the whole
+reason this node exists. Look at ``debug_dir/latest.jpg`` in an editor instead;
+it is written atomically and carries the focus score, the glyph height and the
+raw OCR text as an overlay.
+
+``publish_image`` turns on two topics for RViz — ``~/image``, the same
+annotated frame the debug writer saves, and ``~/image_mask``, the binary mask
+the detector picks its regions out of. Both are downscaled to ``image_width``
+and rate-limited to ``image_rate``, because a 1080p stream at the OCR rate is
+what made this unusable in the first place. The mask is the one to look at
+when detection comes and goes on a plate that is plainly in frame.
 
 Interface
 ---------
@@ -88,6 +95,7 @@ from __future__ import annotations
 
 import json
 
+import cv2
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Point
@@ -104,11 +112,17 @@ from .camera import (
     CameraSettings,
 )
 from .debounce import Debouncer
-from .debug import DebugWriter
+from .debug import DebugWriter, annotate
 from .exposure import ExposureController, ExposureSettings
 from .normalize import DEFAULT_PLATE_PATTERN
 from .ocr import DEFAULT_LANG, available_languages, make_engine
-from .reader import DEFAULT_HFOV_DEG, PlateReader, ReadResult, ReadSettings
+from .reader import (
+    DEFAULT_HFOV_DEG,
+    PlateReader,
+    ReadResult,
+    ReadSettings,
+    textband_mask,
+)
 
 UNSET_ROI = [-1, -1, -1, -1]
 
@@ -161,6 +175,9 @@ class PlateOcrNode(Node):
         self.declare_parameter("width_ratio_range", [0.05, 0.75])
         self.declare_parameter("band_close_width", 121)
         self.declare_parameter("min_relative_brightness", 1.0)
+        self.declare_parameter("publish_image", False)
+        self.declare_parameter("image_rate", 2.0)
+        self.declare_parameter("image_width", 640)
 
         rate = float(self.get_parameter("ocr_rate").value)
         if rate <= 0.0:
@@ -249,6 +266,26 @@ class PlateOcrNode(Node):
         # worse than saying nothing.
         self._offset_pub = self.create_publisher(Point, "~/plate_offset", 10)
 
+        # RViz view of the same annotated frame the debug writer saves. Off by
+        # default and rate-limited when on: a 1080p stream at the OCR rate is
+        # what made looking at this remotely useless to begin with.
+        self._image_pub = None
+        self._mask_pub = None
+        self._image_period = 0.0
+        self._image_next = 0.0
+        self._image_width = int(self.get_parameter("image_width").value)
+        if bool(self.get_parameter("publish_image").value):
+            from sensor_msgs.msg import Image  # noqa: F401 - optional dependency
+
+            rate = float(self.get_parameter("image_rate").value)
+            self._image_period = 1.0 / rate if rate > 0 else 0.0
+            self._image_pub = self.create_publisher(Image, "~/image", 1)
+            # The binary mask the detector picks regions out of. When detection
+            # comes and goes on a plate that is plainly in frame, this is where
+            # the answer is — and it has to come from the node, because the
+            # standalone viewer cannot have the camera at the same time.
+            self._mask_pub = self.create_publisher(Image, "~/image_mask", 1)
+
         # --- pipeline --------------------------------------------------------
         self._engine = make_engine(backend, lang)
         self._digit_engine = make_engine(backend, digit_lang)
@@ -285,6 +322,45 @@ class PlateOcrNode(Node):
         )
         if self._debug is not None:
             self.get_logger().info(f"debug images -> {self._debug.directory}/latest.jpg")
+
+    def _publish_image(self, frame, result, status: str, now: float) -> None:
+        """Push the annotated frame to RViz, no faster than image_rate."""
+        if self._image_pub is None or now < self._image_next:
+            return
+        self._image_next = now + self._image_period
+        try:
+            from cv_bridge import CvBridge
+
+            if not hasattr(self, "_bridge"):
+                self._bridge = CvBridge()
+            shown = annotate(frame, result, status)
+            height, width = shown.shape[:2]
+            if width > self._image_width:
+                scale = self._image_width / width
+                shown = cv2.resize(shown, (self._image_width, int(height * scale)))
+            stamp = self.get_clock().now().to_msg()
+            msg = self._bridge.cv2_to_imgmsg(shown, encoding="bgr8")
+            msg.header.stamp = stamp
+            msg.header.frame_id = "camera"
+            self._image_pub.publish(msg)
+
+            if self._mask_pub is not None:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                roi = self._settings.roi
+                search = (gray[roi[1]:roi[1] + roi[3], roi[0]:roi[0] + roi[2]]
+                          if roi is not None else gray)
+                mask = textband_mask(search, self._settings)
+                if mask.shape[1] > self._image_width:
+                    scale = self._image_width / mask.shape[1]
+                    mask = cv2.resize(
+                        mask, (self._image_width, int(mask.shape[0] * scale)))
+                mask_msg = self._bridge.cv2_to_imgmsg(mask, encoding="mono8")
+                mask_msg.header.stamp = stamp
+                mask_msg.header.frame_id = "camera"
+                self._mask_pub.publish(mask_msg)
+        except Exception as exc:  # noqa: BLE001 - a view must never stop the reader
+            self.get_logger().warn(f"image publish failed: {exc}",
+                                   throttle_duration_sec=10.0)
 
     # --- main loop -----------------------------------------------------------
 
@@ -323,8 +399,10 @@ class PlateOcrNode(Node):
             )
         if self._detail_pub is not None:
             self._detail_pub.publish(String(data=self._detail(result, published)))
+        status = f"#{self._frames} exp {self._exposure.value}"
         if self._debug is not None:
-            self._debug.write(frame, result, f"#{self._frames} exp {self._exposure.value}")
+            self._debug.write(frame, result, status)
+        self._publish_image(frame, result, status, now)
 
         self._track_exposure(result)
 

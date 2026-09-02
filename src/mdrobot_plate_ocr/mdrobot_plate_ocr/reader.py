@@ -180,15 +180,15 @@ class ReadSettings:
     # fills the frame, and a fifth-of-a-frame error in the offset steers the
     # machine off the plate exactly when it is closest to it.
     band_close_width: int = 121
-    # A plate is a bright panel; the things that compete with it — a shelf edge,
-    # the side of a box — are not. Measured as the band's mean brightness over
-    # the searched area's, which stays meaningful when the lighting or the
-    # exposure changes, where an absolute threshold would not:
-    #     plates            1.13  1.14  2.03  2.15
-    #     other candidates  0.52  0.53
-    #     a frame with no plate in it, best candidate  0.84
-    # 1.0 clears both sides. Lower it if a plate in shadow is being dropped.
-    min_relative_brightness: float = 1.0
+    # A plate is usually brighter than the scene around it, but only usually.
+    # Against glass and white paint it measured 1.09, and frame-to-frame wobble
+    # put it under a threshold of 1.0 five times out of six — detection came and
+    # went with the plate in plain view. Width is what really separates a plate
+    # from its competitors, so this only has to catch things far darker than the
+    # scene:
+    #     plates            1.09  1.13  1.14  2.03  2.15
+    #     other candidates  0.52  0.53  0.69  0.88
+    min_relative_brightness: float = 0.85
 
     def __post_init__(self) -> None:
         if self.detector not in DETECTORS:
@@ -348,8 +348,13 @@ def find_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
     return [] if settings.detect_only else [base]
 
 
-def _textband_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
-    """Find wide runs of vertical strokes — text lines, not rectangles."""
+def textband_mask(gray: np.ndarray, settings: ReadSettings) -> np.ndarray:
+    """The binary mask the textband detector picks its regions out of.
+
+    Separated so a live view can show exactly what the detector is working
+    from. When detection comes and goes on a plate that is plainly in frame,
+    this is where the answer is.
+    """
     rect = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 9))
     blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, rect)
     gradient = np.absolute(cv2.Sobel(blackhat, cv2.CV_32F, 1, 0, ksize=3))
@@ -362,7 +367,12 @@ def _textband_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
         cv2.MORPH_CLOSE,
         cv2.getStructuringElement(cv2.MORPH_RECT, (settings.band_close_width, 11)),
     )
-    mask = cv2.erode(mask, None, iterations=2)
+    return cv2.erode(mask, None, iterations=2)
+
+
+def _textband_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
+    """Find wide runs of vertical strokes — text lines, not rectangles."""
+    mask = textband_mask(gray, settings)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     low, high = settings.aspect_range
