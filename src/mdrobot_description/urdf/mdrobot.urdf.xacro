@@ -13,9 +13,23 @@
       y 9.787 and the body's at 20.439, so the wheels stick out below the body.
       Read the other way round the chassis would be dragging on the floor.
 
-  So CAD (x, y, z) = (fore-aft, up, left-right), and one rotation of +90 deg
-  about X takes it to ROS (x forward, y left, z up): (x, y, z) -> (x, -z, y).
-  That is the rpy="${pi/2} 0 0" on every mesh below.
+  CAD y is up, then. Which of the other two is fore-aft could NOT be read off
+  the files: the base is nearly square (512 by 610) and both candidates put a
+  wheel in a sensible place. Driving it settled it. With CAD x taken as
+  forward the model crabbed sideways across RViz while the machine drove
+  straight, so CAD z is fore-aft and CAD x is left-right.
+
+  Which leaves the wheel contradicting itself: its axle is along CAD z, and CAD
+  z is now fore-aft, and no wheel has a fore-aft axle. So the wheel was
+  exported in PART orientation with only its assembly TRANSLATION applied —
+  the file puts it in the right place and the wrong attitude. mesh_check
+  cannot see that, because an offset origin looks the same either way.
+
+  Hence two yaws rather than one. Every mesh is first rotated +90 deg about X
+  to stand CAD y up, then about Z by its own angle: the body by 90 deg to put
+  its fore-aft on ROS x, the wheel by 0 so its axle stays on ROS y. Both are
+  arguments, because a further 180 deg is not observable from the geometry —
+  if the machine drives backwards in RViz, add 180 to body_yaw_deg.
 
   The parts were exported in ASSEMBLY coordinates, so each mesh also carries a
   translation that brings its own origin to where the link is. Without it a
@@ -32,8 +46,12 @@
 
                  supervisor.yaml    measured off the CAD
     wheel_radius     0.0625 m           0.0644 m
-    wheelbase        0.500 m            0.365 m
-    track            0.575 m            0.395 m
+    wheelbase        0.500 m            0.395 m
+    track            0.575 m            0.365 m
+
+  (The CAD wheelbase and track swapped over when driving showed CAD z to be
+  the fore-aft axis. The pair is nearly square, which is exactly why the files
+  could not settle it alone.)
 
   The radius gap is expected — 0.0625 is the EFFECTIVE rolling radius, checked
   by driving a commanded 1.000 m, and a loaded tyre rolls smaller than it
@@ -73,6 +91,12 @@
   <xacro:arg name="body_mesh" default="package://mdrobot_description/meshes/body.stl"/>
   <xacro:arg name="wheel_mesh" default="package://mdrobot_description/meshes/wheel.stl"/>
   <xacro:arg name="mesh_scale" default="0.001 0.001 0.001"/>
+  <!-- Rotation about ROS z applied AFTER standing the CAD frame up. See the
+       note above: settled by driving the machine, not by reading the files. -->
+  <xacro:arg name="body_yaw_deg" default="90"/>
+  <xacro:arg name="wheel_yaw_deg" default="0"/>
+  <xacro:property name="body_yaw" value="${radians($(arg body_yaw_deg))}"/>
+  <xacro:property name="wheel_yaw" value="${radians($(arg wheel_yaw_deg))}"/>
   <xacro:property name="body_mesh" value="$(arg body_mesh)"/>
   <xacro:property name="wheel_mesh" value="$(arg wheel_mesh)"/>
 
@@ -101,11 +125,15 @@
         </geometry>
       </xacro:if>
       <xacro:unless value="${body_mesh == ''}">
-        <!-- Rx(+90) from CAD to ROS, then the assembly offset removed: x back
-             by the bbox centre, y from CAD z about the centre line, z so the
-             wheels' contact point lands on the floor. -->
-        <origin rpy="${pi/2} 0 0"
-                xyz="${-body_cx} ${body_cz} ${-ground_y}"/>
+        <!-- Rz(body_yaw) * Rx(+90) takes CAD (x, y, z) to
+             (x cos + z sin, x sin - z cos, y), so the offset that brings the
+             bbox centre onto the origin has to be rotated with it. z is
+             unaffected by the yaw: it is always CAD y, dropped so the wheels'
+             contact point lands on the floor. -->
+        <origin rpy="${pi/2} 0 ${body_yaw}"
+                xyz="${-(body_cx*cos(body_yaw) + body_cz*sin(body_yaw))}
+                     ${-(body_cx*sin(body_yaw) - body_cz*cos(body_yaw))}
+                     ${-ground_y}"/>
         <geometry>
           <mesh filename="${body_mesh}" scale="$(arg mesh_scale)"/>
         </geometry>
@@ -132,8 +160,10 @@
                'unknown' on this machine anyway — which way the rollers face has
                never been settled, and drawing a specific one would be asserting
                something nobody has checked. -->
-          <origin rpy="${pi/2} 0 0"
-                  xyz="${-wheel_cx} ${wheel_cz} ${-wheel_cy}"/>
+          <origin rpy="${pi/2} 0 ${wheel_yaw}"
+                  xyz="${-(wheel_cx*cos(wheel_yaw) + wheel_cz*sin(wheel_yaw))}
+                       ${-(wheel_cx*sin(wheel_yaw) - wheel_cz*cos(wheel_yaw))}
+                       ${-wheel_cy}"/>
           <geometry>
             <mesh filename="${wheel_mesh}" scale="$(arg mesh_scale)"/>
           </geometry>

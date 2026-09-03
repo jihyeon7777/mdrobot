@@ -50,8 +50,20 @@ def read_binary_stl(path: str) -> np.ndarray:
 def write_binary_stl(path: str, triangles: np.ndarray) -> None:
     count = len(triangles)
     records = np.zeros((count, 50), dtype=np.uint8)
-    # Normals left at zero: every renderer worth using recomputes them from the
-    # winding, and a stale normal from before decimation would be wrong anyway.
+    # Real face normals, NOT zeros. "Every renderer recomputes them from the
+    # winding" is false for this one: assimp hands Ogre what the file says, a
+    # zero normal lights to nothing, and the model comes out a solid black
+    # silhouette that reads as a material problem rather than a mesh one.
+    # Recomputed rather than carried over, because a normal from before
+    # decimation describes a face that no longer exists.
+    normals = np.cross(triangles[:, 1] - triangles[:, 0],
+                       triangles[:, 2] - triangles[:, 0])
+    lengths = np.linalg.norm(normals, axis=1, keepdims=True)
+    # A degenerate face has no direction to give, so leave it at zero rather
+    # than dividing by one. simplify() drops those, so it should not arise.
+    normals = np.divide(normals, lengths, out=np.zeros_like(normals),
+                        where=lengths > 0)
+    records[:, 0:12] = normals.astype("<f4").view(np.uint8)
     # 9 floats a triangle, which is the 36 bytes at offset 12 in the record.
     records[:, 12:48] = triangles.astype("<f4").reshape(count, 9).view(np.uint8)
     with open(path, "wb") as handle:

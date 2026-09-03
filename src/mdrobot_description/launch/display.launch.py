@@ -64,6 +64,10 @@ def generate_launch_description() -> LaunchDescription:
             "wheel_mesh",
             default_value="package://mdrobot_description/meshes/wheel.stl"),
         DeclareLaunchArgument("mesh_scale", default_value="0.001 0.001 0.001"),
+        # Settled by driving: with body_yaw_deg 0 the model crabbed sideways
+        # while the machine drove straight. Add 180 if it drives backwards.
+        DeclareLaunchArgument("body_yaw_deg", default_value="90"),
+        DeclareLaunchArgument("wheel_yaw_deg", default_value="0"),
         # Defaults track supervisor.yaml. The CAD disagrees; the URDF says why.
         DeclareLaunchArgument("wheelbase", default_value="0.5"),
         DeclareLaunchArgument("track", default_value="0.575"),
@@ -88,6 +92,8 @@ def generate_launch_description() -> LaunchDescription:
             " body_mesh:=", LaunchConfiguration("body_mesh"),
             " wheel_mesh:=", LaunchConfiguration("wheel_mesh"),
             " mesh_scale:='", LaunchConfiguration("mesh_scale"), "'",
+            " body_yaw_deg:=", LaunchConfiguration("body_yaw_deg"),
+            " wheel_yaw_deg:=", LaunchConfiguration("wheel_yaw_deg"),
             " wheelbase:=", LaunchConfiguration("wheelbase"),
             " track:=", LaunchConfiguration("track"),
             " wheel_radius:=", LaunchConfiguration("wheel_radius"),
