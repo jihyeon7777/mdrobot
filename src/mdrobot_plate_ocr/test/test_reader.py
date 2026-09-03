@@ -84,7 +84,8 @@ class TestFindRegions:
         assert find_regions(gray, ReadSettings(detector="textband")) == [(0, 0, 640, 480)]
 
     def test_textband_finds_a_line_of_strokes_and_reports_frame_coordinates(self):
-        gray = np.full((480, 640), 240, np.uint8)
+        gray = np.full((480, 640), 120, np.uint8)
+        gray[190:260, 190:410] = 240
         for x in range(200, 400, 20):  # a row of vertical bars = a text line
             cv2.rectangle(gray, (x, 200), (x + 8, 250), 0, -1)
         regions = find_regions(gray, ReadSettings(detector="textband"))
@@ -96,7 +97,8 @@ class TestFindRegions:
         assert 190 <= y <= 210 and 240 <= y + h <= 260
 
     def test_a_detector_searches_inside_the_roi(self):
-        gray = np.full((480, 640), 240, np.uint8)
+        gray = np.full((480, 640), 120, np.uint8)
+        gray[190:260, 190:410] = 240
         for x in range(200, 400, 20):
             cv2.rectangle(gray, (x, 200), (x + 8, 250), 0, -1)
         settings = ReadSettings(detector="textband", roi=(150, 150, 300, 200))

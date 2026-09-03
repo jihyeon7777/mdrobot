@@ -17,7 +17,7 @@ jobs:
       - name: Install mdrobot
         run: pip install -e 'src/mdrobot[serial,dev]'
       - name: Run unit tests
-        run: python -m pytest src/mdrobot/test src/mdrobot_plate_ocr/test -v
+        run: python -m pytest src/mdrobot/test -v
 
   ros2:
     name: ROS 2 Jazzy (colcon build + test)
