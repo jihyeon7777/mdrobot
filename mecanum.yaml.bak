@@ -1,0 +1,61 @@
+# Mecanum base configuration — 4 wheels on two dual-channel MDROBOT controllers.
+# Written by `mdrobot_mecanum.identify`. Safe to hand-edit: unknown keys are an
+# error, missing keys fall back to defaults.
+#
+# bus budget: 4 writes x 12 ms = 48 ms/tick vs 100 ms period (48%)
+version: 1
+
+port: /dev/ttyUSB0                # null -> $MDROBOT_PORT
+baudrate: 19200
+timeout: 0.3
+
+# Which motor output drives which wheel, and which way it turns.
+# sign = +1 when a POSITIVE rpm command drives the robot FORWARD.
+# The four (slave_id, channel) pairs must cover two distinct ids x channels 1 and 2.
+wheels:
+  front_left:  {slave_id: 1, channel: 1, sign: -1}
+  front_right: {slave_id: 1, channel: 2, sign:  1}
+  rear_left:   {slave_id: 2, channel: 2, sign: -1}
+  rear_right:  {slave_id: 2, channel: 1, sign:  1}
+
+# Flips the vy column of the kinematics ONLY: a wrong value makes strafe go the wrong
+# way and changes NOTHING else. It cannot be decided by eye — the roller you see from
+# above projects to the mirror of the ground-contact roller that does the work. Only a
+# floor test settles it.  x | o | unknown
+# STILL UNVERIFIED: computing as "x". Run the floor check to settle it.
+roller_layout: unknown
+
+geometry:
+  wheel_radius: 0.0625    # m
+  track: 0.575           # m  LEFT-RIGHT wheel centre distance
+  wheelbase: 0.5       # m  FRONT-REAR wheel centre distance
+  gear_ratio: 20.0       # MOTOR revolutions per WHEEL revolution (>1 = reduction)
+
+limits:
+  # THE hard cap. Enforced at the wheel by a proportional clamp that scales all four
+  # speeds together, so a clamped straight line stays straight.
+  max_motor_rpm: 600
+  # Teleop targets — what the operator can ask for, not what the hardware accepts.
+  max_linear_x: 0.2      # m/s
+  max_linear_y: 0.2      # m/s
+  max_angular_z: 0.37     # rad/s
+  # Software twist ramp. decel must be >= accel: the robot has to stop at least as
+  # fast as it starts.
+  accel_linear: 0.25      # m/s^2
+  decel_linear: 0.5      # m/s^2
+  accel_angular: 0.45     # rad/s^2
+  decel_angular: 0.9     # rad/s^2
+
+runtime:
+  loop_hz: 10.0
+  idle_timeout: 10.0      # s; 0 disables. Guards a dead terminal, not a released key.
+  max_comm_errors: 3       # consecutive drive failures before aborting
+  use_batched_velocity: false   # PID_PNT_VEL_CMD(207): halves the writes, but the
+                              # word order has never been verified on a wire. Only set
+                              # true after the batched probe passes on this hardware.
+  controller_ramp_s: 0.2     # slow-start/down on all 4 channels; null leaves as-is.
+                              # Keep it SHORT: the four channels ramp independently and
+                              # would break the wheel-speed ratio. The real shaping is
+                              # the software twist ramp above.
+  use_limit_sw: 0            # -1 leave as-is / 0 disable / 1 enable
+  auto_enable: true
