@@ -138,8 +138,10 @@
     # the polarity is inverted and this should be 0. Both switches reading
     # triggered at once is impossible, so that is caught as a fault and the lift
     # is held at 0.
-    limit_gating: false
-    limit_active_value: 1
+limit_gating: true      # measured: the lift hit its upper stop and f8 went
+                            # 0 -> 1, so a closed switch reads 1
+    limit_active_value: 1   # a TRIGGERED switch reports 1, measured on the
+                            # upper one at the top of its travel
 
     # ── modes ──────────────────────────────────────────────────────────────
     # The switch reports -1, 0, +1 and these name them in that order.
