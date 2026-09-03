@@ -23,12 +23,18 @@
     # Complain if samples stop. The sensor free-runs, so silence is a fault.
     min_sample_rate: 5.0
 
-    # ---- MOUNTING: verify these by hand, they are reasoning not measurement --
+    # ---- MOUNTING: all three MEASURED, none assumed ------------------------
+    # Settled by moving the machine and watching `ros2 run mdrobot_imu
+    # imu_check`, which shows the mapped output the rest of the robot sees.
+    # (imu_survey is the wrong tool for this — it prints the sensor's RAW
+    # degrees with no mounting applied.)
+    #
     # Turn the robot LEFT  -> yaw must INCREASE
     # Tip the nose UP      -> pitch must INCREASE
     # Roll to the RIGHT    -> roll must INCREASE
-    # Watch it with:  ros2 topic echo /mdrobot_imu/attitude_deg
-    # or, with no ROS at all:  python3 -m mdrobot_imu.survey --seconds 60
+    #
+    # Re-check after ANY remount. A sign that is wrong here does not wobble,
+    # it drives the error the wrong way, under a car, with a drill.
     #
     # MEASURED on this robot with `ros2 run mdrobot_imu imu_check`, 2026-09-03.
     #
@@ -38,9 +44,8 @@
     #       was flagged as reasoning rather than fact.
     # roll: rolling the machine RIGHT made the published roll FALL, so the
     #       sensor's roll runs the other way to REP-103. -1.
-    # pitch: NOT YET VERIFIED. Tip the nose up and watch imu_check; nothing
-    #       reads pitch today, so this being wrong costs nothing until
-    #       something does.
+    # pitch: tipping the nose up made the published pitch rise. +1, the one
+    #       default of the three that turned out to be right.
     roll_sign: -1.0
     pitch_sign: 1.0
     yaw_sign: 1.0

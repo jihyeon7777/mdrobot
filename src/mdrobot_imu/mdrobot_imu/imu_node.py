@@ -39,11 +39,11 @@ The sensor reports roll about its X, pitch about its Y and yaw about its Z,
 with Z up (a horizontal sensor reads +1 g on Z — confirmed on the fitted unit).
 ROS REP-103 wants X forward, Y left, Z up, all right-handed.
 
-``yaw_sign`` is +1 and ``roll_sign`` is -1 because that is what this robot did
-when it was turned and tilted (2026-09-03); both were expected to be the other
-way round, which is why the defaults were flagged as reasoning rather than
-fact. ``pitch_sign`` is still unmeasured — nothing reads it yet. Before any of
-this steers the machine:
+All three signs on this robot were settled by moving it (2026-09-03), and two
+of the three defaults were wrong: ``yaw_sign`` +1 and ``roll_sign`` -1 were
+both expected the other way round. That is why they are parameters and why the
+defaults were flagged as reasoning rather than fact. After any remount, or on
+any other machine, do the three checks again:
 
     turn the robot to its LEFT and confirm yaw INCREASES,
     tip its NOSE UP and confirm pitch INCREASES,

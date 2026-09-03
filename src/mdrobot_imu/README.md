@@ -50,11 +50,11 @@ re-run `colcon build` after editing (or build once with `--symlink-install`).
 
 ### 1. Verify the signs by hand
 
-The node maps the sensor's frame to REP-103 with three sign parameters. The
-defaults are **reasoning about WITMOTION's conventions, not a measurement of
-how the sensor is bolted to this robot**. WITMOTION's yaw grows *clockwise*
-seen from above, like a compass; REP-103 grows anticlockwise — hence
-`yaw_sign: -1.0`.
+The node maps the sensor's frame to REP-103 with three sign parameters. They
+cannot be reasoned out — they are a property of how the sensor is bolted to a
+particular machine. On this one, **two of the three defaults were wrong**.
+
+Re-do these checks after any remount, and on any other machine.
 
 ```bash
 ros2 launch mdrobot_imu imu.launch.py     # one terminal
@@ -87,10 +87,10 @@ that drives the error the wrong way, under a car, with a drill.
 |---|---|---|
 | `yaw_sign` | **+1** | turning left made yaw rise. Defaulted to -1 on the reasoning that WITMOTION yaw grows clockwise like a compass; it does not |
 | `roll_sign` | **−1** | rolling right made roll fall, so the sensor's roll runs opposite to REP-103 |
-| `pitch_sign` | *unverified* | nothing reads pitch yet, so it costs nothing until something does |
+| `pitch_sign` | **+1** | tipping the nose up made pitch rise — the one default that was right |
 
-Two of the three defaults were wrong. Neither could have been settled by reading
-the manual — only by moving the machine.
+Two of the three were wrong, and neither could have been settled by reading the
+manual. Only by moving the machine.
 
 ### 2. Put the sensor in 6-axis mode
 
