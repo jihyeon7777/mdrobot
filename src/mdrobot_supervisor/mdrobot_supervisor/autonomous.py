@@ -329,21 +329,30 @@ class AutonomousSequence:
             # while the drill finishes. lift_up_seconds is only the backstop for
             # a switch that never closes — a broken wire must not mean pushing
             # until the phase ends.
-            if elapsed >= cfg.drill_seconds:
-                self._enter(Phase.LIFT_DOWN, obs.now, "hole cut; lowering the lift")
-                return Action(lift=-1, phase=self.phase, message=self._message)
             if obs.at_top and not self._top_seen:
                 self._top_seen = True
                 self._lift_stopped_by = f"upper limit at {elapsed:.1f} s"
-            rising = not self._top_seen and elapsed < cfg.lift_up_seconds
-            if not rising and not self._lift_stopped_by:
+            elif not self._top_seen and elapsed >= cfg.lift_up_seconds:
+                # Fault timeout, not the stroke length. A switch that never
+                # closes leaves a shallower hole, which is worth carrying on
+                # with — unlike the lower one, where an unknown position means
+                # raising the actuator into the lift.
+                self._top_seen = True
                 self._lift_stopped_by = (
-                    f"lift_up_seconds ({cfg.lift_up_seconds:.0f} s) with no "
-                    f"upper limit"
+                    f"NO upper limit in {cfg.lift_up_seconds:.0f} s"
                 )
+            rising = not self._top_seen
+            # The bit keeps turning while the lift feeds it. The phase ends once
+            # it has had its time AND the lift has stopped, so the stroke always
+            # ends on the switch rather than wherever the drill clock ran out.
+            if elapsed >= cfg.drill_seconds and not rising:
+                self._enter(Phase.LIFT_DOWN, obs.now,
+                            f"hole cut, lift stopped by {self._lift_stopped_by}; "
+                            f"lowering the lift")
+                return Action(lift=-1, phase=self.phase, message=self._message)
             self._message = (
                 f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
-                + (", lift rising" if rising
+                + (", lift rising to the upper limit" if rising
                    else f", lift held — stopped by {self._lift_stopped_by}")
             )
             return Action(lift=1 if rising else 0, drill=1,

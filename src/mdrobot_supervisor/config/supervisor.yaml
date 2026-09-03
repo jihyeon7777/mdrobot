@@ -197,7 +197,12 @@
     # hole, the valve opens, and everything retracts. All timed: the limit
     # switches that should end the lift strokes are not fitted yet.
     auto_drill_seconds: 20.0       # the bit turns this long, all told
-    auto_lift_up_seconds: 10.0     # of that, the lift pushes up for the first 10
+    auto_lift_up_seconds: 70.0    # NOT the stroke length -- the upper limit
+                                  # switch ends it, same as the lower one. This
+                                  # is the fault timeout: a full stroke measured
+                                  # ~53 s, so reaching 70 with no switch means it
+                                  # never closed. That only costs a shallower
+                                  # hole, so it carries on rather than aborting.
     auto_lift_down_seconds: 70.0  # NOT the stroke length -- the lower limit
                                   # switch ends it. This is the fault timeout:
                                   # a full stroke measured ~53 s, so reaching
