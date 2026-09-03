@@ -63,10 +63,15 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "wheel_mesh",
             default_value="package://mdrobot_description/meshes/wheel.stl"),
+        # The left pair is a reflection: mecanum wheels are chiral and one hand
+        # was exported.
+        DeclareLaunchArgument(
+            "wheel_mesh_left",
+            default_value="package://mdrobot_description/meshes/wheel_mirror.stl"),
         DeclareLaunchArgument("mesh_scale", default_value="0.001 0.001 0.001"),
-        # Settled by driving: with body_yaw_deg 0 the model crabbed sideways
-        # while the machine drove straight. Add 180 if it drives backwards.
-        DeclareLaunchArgument("body_yaw_deg", default_value="90"),
+        # Settled by driving: at 0 the model crabbed sideways while the
+        # machine drove straight, and at 90 it drove backwards.
+        DeclareLaunchArgument("body_yaw_deg", default_value="270"),
         DeclareLaunchArgument("wheel_yaw_deg", default_value="0"),
         # Defaults track supervisor.yaml. The CAD disagrees; the URDF says why.
         DeclareLaunchArgument("wheelbase", default_value="0.5"),
@@ -91,6 +96,7 @@ def generate_launch_description() -> LaunchDescription:
             "xacro ", LaunchConfiguration("model"),
             " body_mesh:=", LaunchConfiguration("body_mesh"),
             " wheel_mesh:=", LaunchConfiguration("wheel_mesh"),
+            " wheel_mesh_left:=", LaunchConfiguration("wheel_mesh_left"),
             " mesh_scale:='", LaunchConfiguration("mesh_scale"), "'",
             " body_yaw_deg:=", LaunchConfiguration("body_yaw_deg"),
             " wheel_yaw_deg:=", LaunchConfiguration("wheel_yaw_deg"),

@@ -72,6 +72,30 @@ def write_binary_stl(path: str, triangles: np.ndarray) -> None:
         handle.write(records.tobytes())
 
 
+def mirror(triangles: np.ndarray, axis: int) -> np.ndarray:
+    """Reflect about the mesh's own centre plane, keeping the surface outward.
+
+    Mecanum wheels are chiral: a base needs two of each hand, and only one was
+    exported. Reflecting the mesh across the plane perpendicular to its axle
+    turns one hand into the other.
+
+    Doing it with a negative <mesh scale> in the URDF would reflect the
+    geometry and leave the winding alone, so every face would end up wound the
+    wrong way and the wheel would render inside out. Reversing two vertices of
+    each triangle puts the winding back, which is why this writes a file
+    instead.
+
+    Reflecting about the mesh's OWN centre leaves its bounding box centre where
+    it was, so the placement offsets worked out for the original still apply.
+    """
+    centre = (triangles.reshape(-1, 3).min(axis=0)
+              + triangles.reshape(-1, 3).max(axis=0)) / 2.0
+    out = triangles.copy()
+    out[:, :, axis] = 2.0 * centre[axis] - out[:, :, axis]
+    # Reflection reverses orientation; swapping two corners restores it.
+    return out[:, [0, 2, 1], :]
+
+
 def simplify(triangles: np.ndarray, cells: int) -> np.ndarray:
     """Vertex-cluster onto a grid `cells` across the longest side."""
     if cells < 2:
@@ -113,9 +137,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--cells", type=int, default=120,
         help="grid cells across the longest side; lower is coarser (default 120)")
+    parser.add_argument(
+        "--mirror", choices=("x", "y", "z"), default=None,
+        help="reflect about the mesh's own centre plane on this axis, winding "
+             "corrected. For a chiral part such as a mecanum wheel, where only "
+             "one hand was exported and a base needs both")
     args = parser.parse_args(argv)
 
     triangles = read_binary_stl(args.source)
+    if args.mirror is not None:
+        triangles = mirror(triangles, "xyz".index(args.mirror))
     reduced = simplify(triangles, args.cells)
     write_binary_stl(args.destination, reduced)
 
@@ -129,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
           f"({len(reduced) / len(triangles):.1%})")
     print(f"  bounding box changed by at most {drift:.3f} file units "
           f"(one cell is {size_before.max() / args.cells:.3f})")
+    if args.mirror is not None:
+        print(f"  mirrored about its own centre on {args.mirror}, winding reversed")
     return 0
 
 

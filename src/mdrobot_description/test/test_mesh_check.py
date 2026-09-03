@@ -88,3 +88,44 @@ def test_an_axle_off_y_is_flagged(tmp_path, cylinder, capsys, axis, name):
     out = capsys.readouterr().out
     assert f"thinnest axis {name}" in out
     assert "needs an rpy" in out
+
+
+def test_mirroring_keeps_the_bounding_box_where_it_was(tmp_path, cylinder):
+    # The placement offsets are worked out from the original, so a reflection
+    # about the mesh's OWN centre has to leave that centre alone or every
+    # mirrored wheel lands somewhere different.
+    from mdrobot_description.mesh_simplify import mirror, read_binary_stl
+
+    path = cylinder(tmp_path / "w.stl", 62.5, 60.0, axis=2,
+                    centre=(74.3, 74.2, 107.6))
+    original = read_binary_stl(path)
+    flipped = mirror(original, 2)
+    lo_a, hi_a = original.reshape(-1, 3).min(0), original.reshape(-1, 3).max(0)
+    lo_b, hi_b = flipped.reshape(-1, 3).min(0), flipped.reshape(-1, 3).max(0)
+    assert lo_a == pytest.approx(lo_b, abs=1e-4)
+    assert hi_a == pytest.approx(hi_b, abs=1e-4)
+
+
+def test_mirroring_reverses_the_winding_so_the_surface_still_faces_out(
+        tmp_path, cylinder):
+    # A reflection flips orientation. Left uncorrected the wheel renders inside
+    # out -- which is what a negative <mesh scale> in the URDF would have done.
+    import numpy as np
+
+    from mdrobot_description.mesh_simplify import mirror, read_binary_stl
+
+    path = cylinder(tmp_path / "w.stl", 62.5, 60.0, axis=2)
+    original = read_binary_stl(path)
+
+    def outward(tri):
+        normals = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        points = tri.reshape(-1, 3)
+        centre = (points.min(0) + points.max(0)) / 2
+        return float((np.einsum("ij,ij->i", normals,
+                                tri.mean(1) - centre) > 0).mean())
+
+    corrected = mirror(original, 2)
+    uncorrected = corrected[:, [0, 2, 1], :]
+    assert outward(corrected) == pytest.approx(outward(original), abs=1e-6)
+    # The two are exact complements: every face that faced out now faces in.
+    assert outward(uncorrected) == pytest.approx(1.0 - outward(original), abs=1e-6)
