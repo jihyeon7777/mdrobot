@@ -342,20 +342,22 @@ class AutonomousSequence:
                     f"NO upper limit in {cfg.lift_up_seconds:.0f} s"
                 )
             rising = not self._top_seen
-            # The bit keeps turning while the lift feeds it. The phase ends once
-            # it has had its time AND the lift has stopped, so the stroke always
-            # ends on the switch rather than wherever the drill clock ran out.
-            if elapsed >= cfg.drill_seconds and not rising:
+            # The bit turns for drill_seconds and no longer. The lift still runs
+            # to its switch, so on the rare stroke that outlasts the drill the
+            # phase waits for it with the bit already off.
+            cutting = elapsed < cfg.drill_seconds
+            if not cutting and not rising:
                 self._enter(Phase.LIFT_DOWN, obs.now,
                             f"hole cut, lift stopped by {self._lift_stopped_by}; "
                             f"lowering the lift")
                 return Action(lift=-1, phase=self.phase, message=self._message)
             self._message = (
-                f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
+                (f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
+                 if cutting else "drill done")
                 + (", lift rising to the upper limit" if rising
                    else f", lift held — stopped by {self._lift_stopped_by}")
             )
-            return Action(lift=1 if rising else 0, drill=1,
+            return Action(lift=1 if rising else 0, drill=1 if cutting else 0,
                           phase=self.phase, message=self._message)
 
         if self.phase is Phase.LIFT_DOWN:
