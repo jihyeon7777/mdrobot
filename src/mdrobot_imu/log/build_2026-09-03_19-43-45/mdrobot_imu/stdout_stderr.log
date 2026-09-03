@@ -1,0 +1,17 @@
+running develop
+running egg_info
+writing mdrobot_imu.egg-info/PKG-INFO
+writing dependency_links to mdrobot_imu.egg-info/dependency_links.txt
+writing entry points to mdrobot_imu.egg-info/entry_points.txt
+writing requirements to mdrobot_imu.egg-info/requires.txt
+writing top-level names to mdrobot_imu.egg-info/top_level.txt
+reading manifest file 'mdrobot_imu.egg-info/SOURCES.txt'
+writing manifest file 'mdrobot_imu.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/python3.12/site-packages/mdrobot-imu.egg-link (link to .)
+Installing imu_check script to /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/mdrobot_imu
+Installing imu_node script to /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/mdrobot_imu
+Installing imu_survey script to /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/mdrobot_imu
+
+Installed /home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu
+running symlink_data

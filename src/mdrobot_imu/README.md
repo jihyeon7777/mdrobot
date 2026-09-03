@@ -124,14 +124,29 @@ standing still.
 
 ## Surveying what the robot actually does
 
-`imu_survey` needs no ROS and no robot; it reads the port directly, prints a
-summary and optionally writes a CSV.
+`imu_survey` prints a summary and optionally writes a CSV. It has two sample
+sources, and **which one you need depends on what else is running**:
 
 ```bash
-ros2 run mdrobot_imu imu_survey --seconds 60 --csv run.csv
-# or, with no ROS at all:
-python3 -m mdrobot_imu.survey --seconds 60 --csv run.csv
+# bringup is up (driving, or turning the drill) -> read the node's output
+ros2 run mdrobot_imu imu_survey --seconds 30 --csv drill.csv --topic
+
+# nothing else running -> read the port directly. Needs no ROS at all
+python3 -m mdrobot_imu.survey --seconds 60 --csv shuffle.csv
 ```
+
+`bringup.launch.py` starts the IMU node, so the default serial mode and bringup
+are **mutually exclusive**: two readers on one tty each get an arbitrary half of
+the stream and neither can frame it, so both quietly run at half rate with gaps
+— and a peak excursion read off a run with gaps is a lower bound, not a
+measurement. The tool checks its own sample rate against `--expect-hz` and says
+so when this happens, but `--topic` avoids it entirely and works alongside
+anything.
+
+`--topic` reports the node's **mapped** attitude (signs and mount offset
+applied) where the serial path reports the sensor's raw degrees. For the
+questions this tool asks it makes no difference: an excursion is an excursion
+and zero is zero either way.
 
 It answers the question that decides how much of this is worth building:
 **drive the robot the way the hole search does — 0.05 m/s, on the floor it will
@@ -140,8 +155,10 @@ excursion off the summary.** Under a couple of degrees and yaw hold is not
 worth building; watch it and abort on it instead. Ten or fifteen and it is the
 main event.
 
-Run it through a real `DRILL` phase too. Whether the reaction torque turns the
-machine is currently unknown, and it is the failure with the highest price.
+Run it through a real `DRILL` phase too — with `--topic`, since that needs
+bringup up to turn the drill. Whether the reaction torque turns the machine is
+currently unknown, and it is the failure with the highest price: a machine that
+turns with the bit in the hole breaks the bit.
 
 ## Wiring and the serial port
 
@@ -184,7 +201,7 @@ count climbs.
 | `frames.py` | Angle wrapping and the sensor→REP-103 sign mapping. Pure |
 | `reader.py` | Serial transport and sample assembly |
 | `imu_node.py` | The ROS 2 node |
-| `survey.py` | The drift/excursion measurement tool. No ROS, raw sensor degrees |
+| `survey.py` | The drift/excursion measurement tool. Serial (no ROS) or `--topic` |
 | `check.py` | Live mapped attitude, for settling the mounting signs by hand |
 
 `protocol.py` and `frames.py` carry no I/O and no ROS so the two things that
