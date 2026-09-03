@@ -39,11 +39,11 @@ The sensor reports roll about its X, pitch about its Y and yaw about its Z,
 with Z up (a horizontal sensor reads +1 g on Z — confirmed on the fitted unit).
 ROS REP-103 wants X forward, Y left, Z up, all right-handed.
 
-``yaw_sign`` is +1 because that is what turning this robot left showed
-(2026-09-03) — the sensor was expected to report a compass-style
-clockwise-positive yaw needing -1, and it does not. ``roll_sign`` and
-``pitch_sign`` are still reasoning, **not** measurement. Before any of this
-steers the machine:
+``yaw_sign`` is +1 and ``roll_sign`` is -1 because that is what this robot did
+when it was turned and tilted (2026-09-03); both were expected to be the other
+way round, which is why the defaults were flagged as reasoning rather than
+fact. ``pitch_sign`` is still unmeasured — nothing reads it yet. Before any of
+this steers the machine:
 
     turn the robot to its LEFT and confirm yaw INCREASES,
     tip its NOSE UP and confirm pitch INCREASES,
@@ -101,7 +101,7 @@ class ImuNode(Node):
         # off in the sensor's own configuration.
         self.declare_parameter("min_sample_rate", 5.0)
         # See the module docstring: signs are reasoned, not measured. Verify.
-        self.declare_parameter("roll_sign", 1.0)
+        self.declare_parameter("roll_sign", -1.0)
         self.declare_parameter("pitch_sign", 1.0)
         self.declare_parameter("yaw_sign", 1.0)
         self.declare_parameter("mount_yaw_offset_deg", 0.0)

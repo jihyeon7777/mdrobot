@@ -30,13 +30,18 @@
     # Watch it with:  ros2 topic echo /mdrobot_imu/attitude_deg
     # or, with no ROS at all:  python3 -m mdrobot_imu.survey --seconds 60
     #
-    # MEASURED on this robot, 2026-09-03: the sensor was expected to report a
-    # compass-style clockwise-positive yaw, which would have needed -1. It does
-    # not. Turning the machine left made the published yaw fall, so the sensor's
-    # own yaw already grows anticlockwise like REP-103 and the sign is +1. This
-    # is exactly why the default was flagged as reasoning rather than fact.
-    # roll_sign and pitch_sign are still UNVERIFIED — check them the same way.
-    roll_sign: 1.0
+    # MEASURED on this robot with `ros2 run mdrobot_imu imu_check`, 2026-09-03.
+    #
+    # yaw:  turning the machine LEFT made the published yaw rise. +1. The
+    #       sensor was expected to report a compass-style clockwise-positive
+    #       yaw needing -1, and it does not — which is exactly why the default
+    #       was flagged as reasoning rather than fact.
+    # roll: rolling the machine RIGHT made the published roll FALL, so the
+    #       sensor's roll runs the other way to REP-103. -1.
+    # pitch: NOT YET VERIFIED. Tip the nose up and watch imu_check; nothing
+    #       reads pitch today, so this being wrong costs nothing until
+    #       something does.
+    roll_sign: -1.0
     pitch_sign: 1.0
     yaw_sign: 1.0
     # For a sensor bolted on rotated about Z. A sensor on its side or upside

@@ -81,9 +81,16 @@ An axis that goes down has its sign backwards: flip `<axis>_sign` in
 A sign that is wrong here does not produce a wobble. It produces a controller
 that drives the error the wrong way, under a car, with a drill.
 
-**Measured 2026-09-03:** `yaw_sign` is **+1**. It defaulted to -1 on the
-reasoning that WITMOTION yaw grows clockwise like a compass; turning the machine
-left proved otherwise. `roll_sign` and `pitch_sign` are still unverified.
+**Measured 2026-09-03**, with `imu_check`:
+
+| Sign | Value | How it was settled |
+|---|---|---|
+| `yaw_sign` | **+1** | turning left made yaw rise. Defaulted to -1 on the reasoning that WITMOTION yaw grows clockwise like a compass; it does not |
+| `roll_sign` | **−1** | rolling right made roll fall, so the sensor's roll runs opposite to REP-103 |
+| `pitch_sign` | *unverified* | nothing reads pitch yet, so it costs nothing until something does |
+
+Two of the three defaults were wrong. Neither could have been settled by reading
+the manual — only by moving the machine.
 
 ### 2. Put the sensor in 6-axis mode
 
