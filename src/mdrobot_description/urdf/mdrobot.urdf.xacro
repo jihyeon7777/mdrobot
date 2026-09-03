@@ -1,0 +1,115 @@
+<?xml version="1.0"?>
+<!--
+  The machine, as RViz sees it.
+
+  Geometry is the SAME set of numbers the kinematics uses, in
+  mdrobot_supervisor/config/supervisor.yaml. If you change a wheel radius or a
+  track here and not there, the model will move differently from the robot and
+  look convincing while doing it.
+
+  The wheel joints are driven by mdrobot_supervisor's odometry_node, which
+  republishes the drive node's joint_states divided by the gear ratio and with
+  the mounting signs undone. Feeding robot_state_publisher the raw motor angles
+  spins these twenty times too far.
+
+  Joint axis is "0 1 0" on all four, and a POSITIVE angle drives the machine
+  forward: with +x forward, +y left and +z up, a contact point at (0, 0, -R)
+  under a wheel turning at +omega about +y moves backwards relative to the
+  centre, which is what pushes the machine forward. That matches the sign
+  convention in kinematics.py, so the angles feed straight through.
+
+  Swapping in a real mesh: set the `base_mesh` argument to a package:// path.
+  The placeholder box stays the default because a wrong-looking model is
+  obvious, whereas a model that is quietly the wrong SIZE is not.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="mdrobot">
+
+  <!-- Straight from supervisor.yaml. Keep them in step. -->
+  <xacro:property name="wheel_radius" value="0.0625"/>
+  <xacro:property name="track" value="0.575"/>
+  <xacro:property name="wheelbase" value="0.5"/>
+  <xacro:property name="wheel_width" value="0.06"/>
+
+  <!-- The body placeholder. Sized to the wheel footprint, not measured: it is
+       there so the model reads as a machine, and to be replaced by the mesh. -->
+  <xacro:property name="body_length" value="0.55"/>
+  <xacro:property name="body_width" value="0.42"/>
+  <xacro:property name="body_height" value="0.18"/>
+
+  <xacro:arg name="base_mesh" default=""/>
+  <xacro:arg name="mesh_scale" default="0.001 0.001 0.001"/>
+
+  <material name="body"><color rgba="0.25 0.28 0.32 1.0"/></material>
+  <material name="rubber"><color rgba="0.10 0.10 0.12 1.0"/></material>
+  <material name="sensor"><color rgba="0.90 0.55 0.10 1.0"/></material>
+
+  <!-- base_link sits on the GROUND at the centre of the wheel footprint, so
+       odom -> base_link puts the machine on the floor rather than buried in it
+       or hovering. The IMU's roll and pitch then tip it about the contact
+       patch, which is where a real machine pivots. -->
+  <link name="base_link">
+    <visual>
+      <xacro:if value="${'$(arg base_mesh)' == ''}">
+        <origin xyz="0 0 ${wheel_radius + body_height/2}"/>
+        <geometry>
+          <box size="${body_length} ${body_width} ${body_height}"/>
+        </geometry>
+        <material name="body"/>
+      </xacro:if>
+      <xacro:unless value="${'$(arg base_mesh)' == ''}">
+        <!-- CAD exports STL in millimetres and this expects metres, hence the
+             0.001 default scale. A model that comes up a thousand times too
+             big is this, and so is one that is 1000x too small if the export
+             was already in metres — pass mesh_scale:="1 1 1" then. -->
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="$(arg base_mesh)" scale="$(arg mesh_scale)"/>
+        </geometry>
+        <material name="body"/>
+      </xacro:unless>
+    </visual>
+  </link>
+
+  <xacro:macro name="wheel" params="name x y">
+    <link name="${name}_wheel">
+      <visual>
+        <!-- Cylinders are built along z, the axle runs along y. -->
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+        <material name="rubber"/>
+      </visual>
+    </link>
+    <joint name="${name}" type="continuous">
+      <parent link="base_link"/>
+      <child link="${name}_wheel"/>
+      <origin xyz="${x} ${y} ${wheel_radius}"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- Joint names are the WHEEL_NAMES the whole workspace uses. Rename one and
+       robot_state_publisher silently stops turning that wheel. -->
+  <xacro:wheel name="front_left"  x="${ wheelbase/2}" y="${ track/2}"/>
+  <xacro:wheel name="front_right" x="${ wheelbase/2}" y="${-track/2}"/>
+  <xacro:wheel name="rear_left"   x="${-wheelbase/2}" y="${ track/2}"/>
+  <xacro:wheel name="rear_right"  x="${-wheelbase/2}" y="${-track/2}"/>
+
+  <!-- Where the HWT901B is bolted. The offset is a GUESS — nothing reads it
+       yet, because the heading is used as a change from a reference and a
+       lever arm does not affect an angle. It will matter the moment anything
+       transforms the acceleration. Measure it then. -->
+  <link name="imu_link">
+    <visual>
+      <geometry><box size="0.055 0.037 0.024"/></geometry>
+      <material name="sensor"/>
+    </visual>
+  </link>
+  <joint name="imu_mount" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 ${wheel_radius + body_height + 0.012}"/>
+  </joint>
+
+</robot>

@@ -135,6 +135,55 @@ def inverse(vx: float, vy: float, wz: float,
     )
 
 
+def forward(omegas, geom: MecanumGeometry) -> tuple[float, float, float]:
+    """Wheel angular velocities -> body twist. The inverse of :func:`inverse`.
+
+    Args:
+        omegas: (front_left, front_right, rear_left, rear_right) in rad/s at the
+            WHEEL, positive = drives the robot forward. Gear ratio and motor
+            mounting direction must already be undone by the caller, exactly as
+            :func:`inverse` expects them to be applied afterwards.
+        geom: robot geometry.
+
+    Returns:
+        (vx, vy, wz): m/s forward, m/s LEFT, rad/s counter-clockwise.
+
+    Four wheels give four equations for three unknowns, so the system is
+    overdetermined and in general has no exact solution — real wheels slip, and
+    slip is precisely what makes the four readings disagree. What comes back is
+    the least-squares fit.
+
+    That fit is a plain average here, with no matrix work, because the three
+    columns of the mecanum matrix are mutually orthogonal and each has norm
+    sqrt(4). Reading them off :func:`inverse`::
+
+        vx column   (1, 1, 1, 1)
+        vy column   sy * d = sy * (-1, +1, +1, -1)
+        wz column   lxy * w = lxy * (-1, +1, -1, +1)
+
+    and every pairwise dot product is zero: ones.d = 0, ones.w = 0, and
+    d.w = 1 + 1 - 1 - 1 = 0. So each component is recovered by projecting onto
+    its own column and dividing by 4.
+
+    The residual that the fit discards is real information and it is thrown
+    away here: it is the amount by which the four wheels disagree, which is a
+    direct measure of slip. Nothing in this robot uses it yet. What does exist
+    is the IMU, which measures the yaw slip causes rather than inferring it —
+    so prefer a measured heading over the wz this returns.
+    """
+    values = [float(w) for w in omegas]
+    if len(values) != 4:
+        raise ValueError(f"forward needs 4 wheel speeds {WHEEL_NAMES}, got {values}")
+    if any(not math.isfinite(v) for v in values):
+        raise ValueError(f"wheel speeds must be finite, got {values}")
+    sy = layout_sign(geom.roller_layout)
+    r = geom.wheel_radius
+    vx = r * sum(values) / 4.0
+    vy = r * sum(d * v for d, v in zip(ROLLER_HANDEDNESS, values)) / (4.0 * sy)
+    wz = r * sum(w * v for w, v in zip(WZ_COLUMN, values)) / (4.0 * geom.lxy)
+    return vx, vy, wz
+
+
 def scale_to_limit(values, limit: float) -> tuple[list[float], float]:
     """Scale a wheel-speed vector down uniformly so no element exceeds `limit`.
 

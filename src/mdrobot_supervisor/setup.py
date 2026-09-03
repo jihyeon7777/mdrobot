@@ -25,6 +25,7 @@ setup(
     entry_points={
         "console_scripts": [
             "supervisor_node = mdrobot_supervisor.supervisor_node:main",
+            "odometry_node = mdrobot_supervisor.odometry_node:main",
         ],
     },
 )
