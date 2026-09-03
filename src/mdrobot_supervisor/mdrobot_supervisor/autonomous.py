@@ -72,6 +72,17 @@ class Phase(Enum):
 
 TERMINAL = (Phase.DONE, Phase.ABORT)
 
+# Phases that command no wheel motion: the machine is parked with the drill in
+# a hole and only the equipment is running. Losing the RC link during one of
+# these says nothing about whether it is safe to keep holding.
+STATIONARY = (
+    Phase.DRILL,
+    Phase.LIFT_DOWN,
+    Phase.RAISE,
+    Phase.SPRAY,
+    Phase.RETRACT,
+)
+
 
 @dataclass(frozen=True)
 class AutonomousConfig:

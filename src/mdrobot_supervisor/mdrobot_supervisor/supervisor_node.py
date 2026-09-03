@@ -28,11 +28,17 @@ Interface
 Parameters (see config/supervisor.yaml for the full annotated set):
   rate (float=50.0)          Hz; decision and publish rate
   rc_timeout (float=0.3)     s without RC before the wheels are commanded to stop
-  auto_rc_grace (float=2.0)  extra s of RC silence a running sequence rides out
-                             before it aborts; the wheels stop at rc_timeout
-                             regardless. The board's USB drops for a few tenths
-                             of a second often enough that aborting on one threw
-                             away runs and dropped the actuator mid-stroke.
+  rc_grace (float=5.0)       extra s of RC silence a running sequence rides out
+                             before it aborts, and that manual keeps holding the
+                             equipment the operator's switch is still asking for.
+                             The wheels stop at rc_timeout regardless. Recorded
+                             gaps run 3.3-3.5 s, arriving 10.8 s after the
+                             actuator starts, so aborting on one threw away
+                             every run about a second into the spray.
+  rc_grace_stationary        the same for phases that command no wheel motion,
+    (float=20.0)             where the machine is parked with the drill in a
+                             hole and the link says nothing about whether it is
+                             safe to keep holding.
   max_linear_x/max_linear_y/max_angular_z  what full stick deflection asks for.
                              max_linear_y is used by mecanum mode, max_angular_z
                              by base mode
@@ -140,6 +146,7 @@ from mdrobot_supervisor.autonomous import (
     AutonomousConfig,
     AutonomousSequence,
     Observation,
+    STATIONARY,
     TERMINAL,
 )
 from mdrobot_supervisor.kinematics import (
@@ -160,7 +167,8 @@ class SupervisorNode(Node):
 
         self.declare_parameter("rate", 50.0)
         self.declare_parameter("rc_timeout", 0.3)
-        self.declare_parameter("auto_rc_grace", 2.0)
+        self.declare_parameter("rc_grace", 5.0)
+        self.declare_parameter("rc_grace_stationary", 20.0)
         self.declare_parameter("pwm_min", 1000)
         self.declare_parameter("pwm_mid", 1500)
         self.declare_parameter("pwm_max", 2000)
@@ -224,8 +232,9 @@ class SupervisorNode(Node):
         self.declare_parameter("odom_max_speed_factor", 4.0)
 
         self.rc_timeout = float(self.get_parameter("rc_timeout").value)
-        self.auto_rc_grace = float(
-            self.get_parameter("auto_rc_grace").value)
+        self.rc_grace = float(self.get_parameter("rc_grace").value)
+        self.rc_grace_stationary = float(
+            self.get_parameter("rc_grace_stationary").value)
         self.pwm_min = int(self.get_parameter("pwm_min").value)
         self.pwm_mid = int(self.get_parameter("pwm_mid").value)
         self.pwm_max = int(self.get_parameter("pwm_max").value)
@@ -352,6 +361,7 @@ class SupervisorNode(Node):
         self._rejected = 0
         self._plate_x: float | None = None
         self._plate_w: float | None = None
+        self._last_equipment: list[int] | None = None
         self._plate_wall = 0.0
         self._hole_x: float | None = None
         self._hole_y: float | None = None
@@ -591,17 +601,20 @@ class SupervisorNode(Node):
             running = (
                 self._was_autonomous and self.sequence.phase not in TERMINAL
             )
-            riding = (
-                running
-                and age is not None
-                and age <= self.rc_timeout + self.auto_rc_grace
-            )
+            # Phases that command no wheel motion do not need the link at all:
+            # the machine is parked with the drill in a hole. Losing RC there is
+            # a reason to keep holding what is already holding, not to let go of
+            # it. The driving phases keep the short grace, because a machine
+            # that is moving and cannot hear the operator has to give up sooner.
+            static = running and self.sequence.phase in STATIONARY
+            grace = self.rc_grace_stationary if static else self.rc_grace
+            riding = running and age is not None and age <= self.rc_timeout + grace
             if not self._stopped:
                 self._stopped = True
                 self.get_logger().warn(
                     "no ~/rc within rc_timeout; wheels stopped"
-                    + ("; sequence riding out the gap" if riding else
-                       " and equipment idle")
+                    + (f"; {self.sequence.phase.value} riding out the gap "
+                       f"({grace:.0f} s)" if riding else " and equipment idle")
                 )
             if riding:
                 self._auto_lift = 0
@@ -633,10 +646,20 @@ class SupervisorNode(Node):
                 self.sequence.abort("RC link lost")
                 self.get_logger().error(
                     f"autonomous aborted: no RC for {age:.1f} s, past the "
-                    f"{self.auto_rc_grace:.1f} s grace. It will not restart on "
+                    f"{grace:.1f} s grace. It will not restart on "
                     "its own — switch out of autonomous and back to run it again."
                 )
                 self._publish_phase(self.sequence.phase.value)
+            if (not running and self._last_equipment is not None
+                    and age is not None and age <= self.rc_timeout + self.rc_grace):
+                # Manual, mid-gap. The operator is still holding the switch —
+                # the link dropped, not the switch. Letting go of the actuator
+                # here is what makes it sag and climb back over and over while
+                # they hold it steady. Wheels still stop.
+                self._publish([0.0] * 4, self._last_equipment, "rc-gap")
+                self._clamp_k = 1.0
+                return
+            self._last_equipment = None
             self._armed = not self.require_neutral_start
             self._publish([0.0] * 4, IDLE_COMMAND, "unknown")
             self._clamp_k = 1.0
@@ -724,6 +747,7 @@ class SupervisorNode(Node):
             actuator,
             1 if (rc[CH["solenoid"]] or self._auto_solenoid) else 0,
         ]
+        self._last_equipment = list(command)
         self._publish(wheel_rpm, command, mode)
 
     def _autonomous(self, now: float, brake: int) -> tuple[float, float, float, int]:

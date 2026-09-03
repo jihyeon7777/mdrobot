@@ -17,13 +17,18 @@
     # aborts. The wheels still stop at rc_timeout. The board's USB goes
     # quiet for 0.3-0.8 s often enough that aborting on one gap threw away
     # runs mid-spray and dropped the actuator with them.
-    # Measured: the link dies for 3.3-3.5 s at a time, every time, about 10.8 s
-    # after the actuator starts moving -- i.e. when it reaches its end stop and
-    # stalls. 2.0 s was just short of riding those out, so the sequence aborted
-    # about a second into the spray, every run. The wheels are already stopped
-    # while this runs, so the only thing riding it out keeps alive is the
-    # equipment the sequence is holding.
-    auto_rc_grace: 5.0
+    # Measured by recording every command frame: the link dies for 3.3-3.5 s at
+    # a stretch, about 10.8 s after the actuator starts moving -- the same
+    # figure in manual and in autonomous, which is it reaching its end stop and
+    # stalling. rc_grace covers those while driving, and holds the equipment a
+    # manual operator is still holding the switch for.
+    rc_grace: 5.0
+
+    # Phases that command no wheel motion (drill, lift_down, raise, spray,
+    # retract) get this instead. The machine is parked with the drill in a hole:
+    # the link says nothing about whether it is safe to keep holding, and
+    # letting go is the thing that actually causes damage.
+    rc_grace_stationary: 20.0
 
     # ── operator sticks ────────────────────────────────────────────────────
     # steer and throttle are the two channels confirmed to carry pulse widths.
@@ -227,7 +232,12 @@
     auto_hole_max_speed: 0.05     # m/s cap while shuffling under the car
     # 12 s: the actuator's measured full stroke. It was 7, so it only ever got
     # about 60% of the way up before the sequence moved on.
-    auto_actuator_seconds: 12.0
+    # Full stroke measured at ~12 s. Stopping short of it is the one lever the
+    # software has on the stall: the link dies 10.8 s after the actuator starts,
+    # so 10.0 s stops it just before it drives into its own end stop. It does
+    # not reach the very top any more. Put it back to 12.0 if the stall turns
+    # out not to be what kills the board.
+    auto_actuator_seconds: 10.0
 
     # The actuator does not hold position unpowered — MEASURED: the moment the
     # command goes to 0 it comes straight back down — so the spray has to keep
@@ -248,8 +258,12 @@
     # holds fine now that the run guard stopped cutting the stroke off. Pulsing
     # let it sag between pushes. Set a period only if it starts hunting against
     # the end stop again.
-    auto_hold_pulse_on: 0.4        # s driving, when pulsing
-    auto_hold_pulse_period: 0.0    # s between pushes; 0 = hold continuously
+    auto_hold_pulse_on: 0.6        # s driving, when pulsing
+    # Holding continuously drives it into the end stop and parks it there
+    # stalled for the whole spray, which is the current surge that browns the
+    # board out. Short top-ups counter the sag without ever reaching the stop.
+    # Set the period to 0 for a continuous hold again.
+    auto_hold_pulse_period: 3.0    # s between pushes; 0 = hold continuously
     auto_spray_seconds: 30.0      # solenoid open, water through the hole
     auto_max_find_hole_seconds: 30.0
     auto_max_hole_align_seconds: 60.0
