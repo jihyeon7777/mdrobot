@@ -32,11 +32,12 @@ The project is a colcon workspace of complementary packages — use only what yo
 | [`mdrobot_cpp`](src/mdrobot_cpp) | **C++ communication library** — the same layers as `mdrobot` (POSIX `termios` transport, CRC, Modbus RTU, registers, status, units, single/dual drivers). `ament_cmake`. |
 | [`mdrobot_ros2_driver`](src/mdrobot_ros2_driver) | A generic **ROS 2 node** (Python) that wraps the library and exposes per-motor velocity/position commands and motor state. |
 | [`mdrobot_ros2_control`](src/mdrobot_ros2_control) | A C++ [`ros2_control`](https://control.ros.org) **`SystemInterface` plugin** wrapping `mdrobot_cpp`. One plugin for every shape via `device_type` (single → 1 joint; dual → 2 joints on one two-channel controller; **twin → 2 joints on two single-channel controllers** at distinct slave ids on one bus, for a skid-steer base); exports position/velocity/effort state and velocity/position command interfaces. |
+| [`mdrobot_mecanum`](src/mdrobot_mecanum) | An example **robot** layer, not a driver: mecanum kinematics for **4 wheels on two dual-channel controllers** sharing one bus, with bring-up/identification tooling and a keyboard teleop. Pure Python, no ROS 2. |
 
 - **Single-channel** controllers (one motor) → `SingleMotorDriver`
 - **Dual-channel** controllers (two motors) → `DualMotorDriver`
 
-This is a *generic* motor driver: it does **not** include robot kinematics (differential drive, odometry, …). It exposes per-motor commands and state only; kinematics belong in a higher-level robot package that consumes this driver.
+This is a *generic* motor driver: it does **not** include robot kinematics (differential drive, odometry, …). It exposes per-motor commands and state only; kinematics belong in a higher-level robot package that consumes this driver — [`mdrobot_mecanum`](src/mdrobot_mecanum) and [`mdrobot_diffbot_example`](src/mdrobot_diffbot_example) are what that looks like.
 
 > **Python and C++.** The Python library/node and the C++ library/`ros2_control` plugin live side by side in one colcon workspace. Build only what you need with `colcon build --packages-select <pkg>`.
 
@@ -49,9 +50,11 @@ mdrobot_motor_driver/            # this repo == a colcon workspace
     ├── mdrobot_cpp/             # C++ communication library (ament_cmake)
     ├── mdrobot_ros2_driver/     # Python ROS 2 node (ament_python), depends on mdrobot
     ├── mdrobot_ros2_control/    # C++ ros2_control SystemInterface (ament_cmake), depends on mdrobot_cpp
+    ├── mdrobot_mecanum/         # 4-wheel mecanum robot layer (ament_python), depends on mdrobot
     └── mdrobot_diffbot_example/ # optional example diff-drive robot (see its own README)
 manual/                          # detailed user manual
 examples/                        # minimal standalone examples
+docs/                            # development working notes
 ```
 
 ## Requirements
@@ -149,6 +152,22 @@ ros2 topic pub -1 /mdrobot_motor_driver/cmd_velocity std_msgs/msg/Float64MultiAr
 ros2 service call /mdrobot_motor_driver/stop std_srvs/srv/Trigger
 ```
 
+### Mecanum base (4 wheels, no ROS 2)
+
+```bash
+# wheels OFF THE GROUND for all of this
+python3 examples/mecanum_scan.py                       # read-only: both controllers there?
+python3 examples/mecanum_identify.py --preflight       # fix ENC_PPR / limit switches
+python3 examples/mecanum_identify.py --only 1:1 --rpm 300 --spin 8   # which wheel is this?
+#   ... repeat for 1:2, 2:1, 2:2, then write mecanum.yaml
+
+python3 examples/mecanum_identify.py --config mecanum.yaml --verify  # check every wheel
+python3 examples/mecanum_teleop.py --scale 20                        # drive it
+```
+
+`--rpm` is a **motor-shaft** number: behind a 20:1 reduction, 30 rpm is 1.5 wheel rpm and
+invisible. Full walkthrough in the [mecanum manual](manual/mecanum.md).
+
 ### ros2_control (C++)
 
 ```bash
@@ -178,6 +197,7 @@ Full usage, parameters, safety and troubleshooting are in the manual:
 - **[C++ library usage](manual/cpp.md)** — `mdrobot_cpp` API reference tables, `open()` factory, object lifetime, error handling
 - **[ROS 2 usage](manual/ros2.md)** — build, launch, parameters, topics/services, `joint_states` units, shutdown, troubleshooting
 - **[ros2_control (C++)](manual/ros2_control.md)** — `mdrobot_cpp` library + the `SystemInterface` plugin, URDF parameters, controllers, twin mode
+- **[Mecanum drive](manual/mecanum.md)** — `mdrobot_mecanum`: 4 wheels on two dual-channel controllers, bring-up, kinematics, keyboard teleop
 
 Minimal runnable examples are in [`examples/`](examples/).
 
@@ -191,6 +211,7 @@ the doc convention `DL/10 . DL%10`):
 | MD400 | single | DL=81 / v8.1 | identify, read, velocity (both directions), position (absolute/relative), ROS 2 node |
 | MD400 | single | DL=86 / v8.6 | ships in encoder mode → set `ENC_PPR (156) = 0` for hall closed-loop drive (counts/rev = 30); velocity, position, ROS 2 node; `PID_ID (133)` slave-id change; twin diff-drive (2 units, one bus) via ros2_control; encoder mode with a 1000 PPR encoder wired (velocity loop only — position stays on the hall counter) |
 | PNT50 | dual | DL=45 / v4.5 | identify, read, velocity (both motors), position (simultaneous), ROS 2 node |
+| PNT50 | dual | DL=19 / v1.9 | identify, read, velocity (both motors); **2 units on one bus at ids 1 & 2 driving a 4-wheel mecanum base** via `mdrobot_mecanum` — wheel map, per-wheel direction, proportional clamp and keyboard teleop, all confirmed against the position counters. See the note on the command watchdog below. |
 | MD400T | dual | DL=72 / v7.2 | identify, read, velocity (both motors), position (simultaneous), ROS 2 node |
 
 > **Twin mode** (two single-channel controllers on one bus) is **hardware-verified
@@ -201,6 +222,23 @@ the doc convention `DL/10 . DL%10`):
 > hardware-verified: the both-stop policy when one of the two controllers drops out
 > mid-drive (unit-tested only). Full steps:
 > [ros2_control → Twin mode](manual/ros2_control.md#twin-mode--two-single-channel-controllers-on-one-bus).
+
+> **A velocity command is not a latch — on PNT50 v1.9 at least.** Measured 2026-08-12:
+> the controller **cuts motor drive after roughly 2 seconds without bus traffic**
+> (gaps of 0.5 / 1.0 / 1.5 s were survived; 2.0 and 3.0 s were not). It is a *traffic*
+> watchdog rather than a command watchdog — a plain register read refreshes it just as
+> well as a velocity write.
+>
+> So sustained motion needs a control loop that keeps talking; `set_velocity` followed
+> by a `sleep` gives a twitch, not motion. The ROS 2 node and the `ros2_control` plugin
+> both write every cycle and are unaffected. Read positively, it is a safety feature: a
+> program that crashes stops sending, and the robot stops by itself within ~2 s.
+>
+> Two smaller measurements from the same session: `enable()` needs about **1.2 s to
+> settle** before the first velocity command takes effect promptly (skipping the pause
+> looks exactly like a dead channel), and the instantaneous speed register is far too
+> quantised to trust at low rpm — a steady 30 rpm command reads back anywhere from 0 to
+> 89. Use the position counter when the answer has to be right.
 
 ## License
 

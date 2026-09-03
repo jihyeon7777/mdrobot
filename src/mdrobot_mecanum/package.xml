@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mdrobot_mecanum</name>
+  <version>1.3.0</version>
+  <description>
+    Mecanum drive layer for a 4-wheel base built from two dual-channel MDROBOT
+    controllers (e.g. two PNT50) on one RS485 bus at distinct Modbus slave ids.
+    Inverse/forward kinematics, a proportional wheel-speed clamp, an interactive
+    wheel-identification wizard, and a keyboard teleop. Pure Python — no ROS 2
+    dependency, so it runs from a bare clone; the generic mdrobot library stays
+    kinematics-free.
+  </description>
+  <maintainer email="taesuyim.kopo@gmail.com">Taesu Yim</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- pyserial: required only for real serial I/O (mdrobot's transport layer). -->
+  <exec_depend>python3-serial</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- mdrobot: in-workspace Python communication library, built together by colcon. -->
+  <exec_depend>mdrobot</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
