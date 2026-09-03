@@ -125,7 +125,10 @@
     # makes: 12 s raising plus 30 s holding through the spray is 42, so 48.
     # Measured stroke is 12 s; at the old 10 the guard was cutting the actuator
     # off mid-travel and it dropped.
-    lift_max_run: 15.0
+lift_max_run: 75.0      # Measured: a full stroke takes ~53 s, and the old
+                            # 15 s guard cut the operator off three times on the
+                            # way down. The limit switches are the real stop now;
+                            # this is only here for a switch that fails.
     actuator_max_run: 48.0
 
     # Limit switches stop the lift at each end. OFF because they are NOT FITTED
@@ -196,7 +199,11 @@ limit_gating: true      # measured: the lift hit its upper stop and f8 went
     # switches that should end the lift strokes are not fitted yet.
     auto_drill_seconds: 20.0       # the bit turns this long, all told
     auto_lift_up_seconds: 10.0     # of that, the lift pushes up for the first 10
-    auto_lift_down_seconds: 10.0   # lift back down, drill off
+auto_lift_down_seconds: 70.0  # Backstop only -- the lower limit switch
+                                  # ends this stroke. A full stroke measured
+                                  # ~53 s, so the old 10 s stopped the lift a
+                                  # fifth of the way down and the actuator then
+                                  # rose into a lift that was still up.
     auto_retract_seconds: 12.0     # actuator down after the valve shuts
     auto_max_align_seconds: 60.0
     auto_max_entry_seconds: 60.0
