@@ -14,6 +14,12 @@ The two USB-serial adapters share the /dev/ttyUSB numbering space, so both the
 drive and the IMU configs address theirs by a by-id path. Getting them the wrong
 way round points the IMU driver at the motor controllers.
 
+Every node runs with output="both", so what it prints goes to the terminal AND
+to ~/.ros/log/<run>/<node>-stdout.log. With "screen" a node that dies takes its
+reason with it the moment the terminal scrolls -- and this machine is reached
+over SSH, where that is most of the time. The launch log records only that a
+process died and its exit code, never why.
+
 Each keeps its own parameter file; pass rc_config, drive_config, imu_config or
 supervisor_config to override one. The plate reader is NOT started here — run
 mdrobot_plate_ocr separately, since it is only needed for autonomous mode.
@@ -58,28 +64,28 @@ def generate_launch_description() -> LaunchDescription:
         package="mdrobot_rc_bridge",
         executable="rc_bridge_node",
         name="mdrobot_rc_bridge",
-        output="screen",
+        output="both",
         parameters=[LaunchConfiguration("rc_config")],
     )
     drive = Node(
         package="mdrobot_ros2_driver",
         executable="mecanum_driver_node",
         name="mdrobot_mecanum_driver",
-        output="screen",
+        output="both",
         parameters=[LaunchConfiguration("drive_config")],
     )
     imu = Node(
         package="mdrobot_imu",
         executable="imu_node",
         name="mdrobot_imu",
-        output="screen",
+        output="both",
         parameters=[LaunchConfiguration("imu_config")],
     )
     supervisor = Node(
         package="mdrobot_supervisor",
         executable="supervisor_node",
         name="mdrobot_supervisor",
-        output="screen",
+        output="both",
         parameters=[LaunchConfiguration("supervisor_config")],
         remappings=[
             ("~/rc", "/mdrobot_rc_bridge/channels"),

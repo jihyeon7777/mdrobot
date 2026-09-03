@@ -249,6 +249,16 @@ def main(args: list[str] | None = None) -> None:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    except RuntimeError:
+        # A signal tears the context down while a timer callback may already be
+        # inside publish(), and rclpy raises RCLError -- a RuntimeError with no
+        # public import path -- straight out of spin(). That is the shutdown
+        # arriving, not a fault: without this the process exits 1 on a clean
+        # stop and launch reports "process has died", which sends you looking
+        # for a crash that never happened. Anything raised while the context is
+        # still up is a real error and goes on up.
+        if rclpy.ok():
+            raise
     finally:
         node.destroy_node()
         if rclpy.ok():
