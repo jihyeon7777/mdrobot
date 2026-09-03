@@ -28,8 +28,10 @@ FIND_HOLE and ALIGN_HOLE sit between LIFT_DOWN and RAISE when hole_stage is on.
 They need the upward-facing camera, which is not fitted, so they are skipped by
 default and the actuator goes up where the drill just was.
 
-Every phase that moves the machine moves it mecanum-style. wz is never set:
-autonomous strafes and drives straight, and never yaws.
+Every phase that moves the machine moves it mecanum-style: it strafes and
+drives straight rather than turning to face things. wz is therefore never asked
+for as a *heading command* — but it is used to CANCEL yaw the machine did not
+ask for, which is what yaw_hold does. See "Why the machine turns anyway".
 
 ABORT is entered instead of any of the above when a guard trips, and like DONE
 it commands nothing. Both are terminal: the operator has to leave autonomous and
@@ -46,7 +48,43 @@ floor, so the slip these rollers were expected to bring is small on that
 surface. That is the number the whole phase rests on, and it is worth
 re-checking on the surface the machine will actually work on. Keep
 entry_distance short, keep entry_speed low, and treat max_entry_seconds as a
-real guard rather than a formality. An IMU would help and is not fitted yet.
+real guard rather than a formality.
+
+An IMU does NOT fix this. Integrating its accelerometer twice over a 15 s entry
+gives about a metre of error even calibrated — worse than the encoders. The
+distance stays on the wheels.
+
+Why the machine turns anyway
+----------------------------
+The inverse kinematics assumes the wheels hold. Mecanum rollers on a smooth
+floor do not, and not equally, so a commanded pure translation comes out as a
+translation plus a rotation nobody asked for. Until the IMU was fitted nothing
+measured that, so nothing could correct it or even report it afterwards.
+
+What that costs is not the hole alignment — the hole search is a visual servo
+closed in the body frame, and a rigidly mounted camera and actuator keep their
+relationship whatever the machine's heading. What it costs is everything
+geometric: the mast sweeping sideways under a car, the hole drifting out of the
+upward camera's view, and above all the DRILL phase, where the wheels are
+commanded to zero while a bit cuts into steel and the reaction torque acts on a
+machine standing on rollers. A machine that turns with the bit in the hole
+breaks the bit.
+
+So yaw_hold corrects where correcting is safe (the phases that are already
+driving) and only WATCHES where it is not (the phases with the bit in the
+hole), aborting instead.
+
+Measured on this machine, 2026-09-03, before any of this was built:
+
+* driven for 90 s and returned to marks on the floor, the reported heading came
+  back 1.75 deg off — so the estimate drifts at roughly 0.02 deg/s;
+* a 60 s shuffle at hole-search speed accumulated several degrees of real yaw.
+
+The signal is bigger than the drift, which is what makes the correction worth
+more than the error it brings with it. But only just, and only over short
+windows — hence a deadband above the drift, a reference re-taken at the start of
+the hole search rather than carried through the whole sequence, and a hard cap
+on how much authority any of this gets.
 """
 
 from __future__ import annotations
@@ -71,6 +109,16 @@ class Phase(Enum):
 
 
 TERMINAL = (Phase.DONE, Phase.ABORT)
+
+
+def wrap_deg(angle: float) -> float:
+    """Fold a heading difference into [-180, 180).
+
+    Half-open at the top, so a given attitude only ever produces one of +180 or
+    -180 and a threshold test cannot see it as inside the limit one tick and
+    outside it the next.
+    """
+    return (angle + 180.0) % 360.0 - 180.0
 
 # Phases that command no wheel motion: the machine is parked with the drill in
 # a hole and only the equipment is running. Losing the RC link during one of
@@ -147,6 +195,24 @@ class AutonomousConfig:
     # exist.
     hole_stage: bool = False
 
+    # Yaw hold, off the IMU (mdrobot_imu). OFF by default: it needs the sensor
+    # fitted AND its signs verified by turning the machine, and with it off
+    # every phase behaves exactly as it did before.
+    yaw_hold: bool = False
+    yaw_timeout: float = 0.5  # s without a heading before it counts as lost
+    # Do nothing inside this. The measured 90 s closure error is 1.75 deg, so a
+    # deadband much below 2 spends its time chasing the sensor's own drift —
+    # rotating the machine to match an error that is not there.
+    yaw_deadband_deg: float = 2.0
+    yaw_gain: float = 0.01  # rad/s of wz per degree of heading error
+    # About a fifth of what a full stick deflection asks for (max_angular_z is
+    # 0.37 rad/s). This runs under a car; it corrects, it does not manoeuvre.
+    yaw_max_wz: float = 0.08
+    # Past this, the machine and the estimate disagree by more than slip
+    # explains — a wheel is jammed, the sensor has come loose, or the estimate
+    # has run away. Correcting harder is the wrong answer. Stop.
+    yaw_abort_deg: float = 15.0
+
     max_align_seconds: float = 60.0
     max_entry_seconds: float = 60.0
     max_find_hole_seconds: float = 30.0
@@ -158,12 +224,20 @@ class AutonomousConfig:
                 f"hold_pulse_on {self.hold_pulse_on} exceeds hold_pulse_period "
                 f"{self.hold_pulse_period}; use a period of 0 to hold continuously"
             )
+        if self.yaw_abort_deg <= self.yaw_deadband_deg:
+            raise ValueError(
+                f"yaw_abort_deg {self.yaw_abort_deg} must exceed "
+                f"yaw_deadband_deg {self.yaw_deadband_deg}, or the sequence "
+                f"aborts on headings it was told to ignore"
+            )
         for name in ("plate_timeout", "min_approach_width", "align_gain",
                      "approach_speed",
                      "entry_distance", "entry_speed", "drill_seconds",
                      "lift_up_seconds", "lift_down_seconds",
                      "hole_timeout", "hole_max_speed",
                      "actuator_seconds", "spray_seconds", "retract_seconds",
+                     "yaw_timeout", "yaw_deadband_deg", "yaw_gain",
+                     "yaw_max_wz", "yaw_abort_deg",
                      "max_align_seconds", "max_entry_seconds",
                      "max_find_hole_seconds", "max_hole_align_seconds"):
             if getattr(self, name) <= 0:
@@ -198,6 +272,11 @@ class Observation:
     hole_offset_x: float | None = None
     hole_offset_y: float | None = None
     hole_age: float | None = None
+    # Heading from the IMU, degrees, and how old the reading is. Absolute value
+    # is irrelevant — only the change since the reference was taken is used, so
+    # it does not matter what the sensor calls north. Ignored unless yaw_hold.
+    yaw: float | None = None
+    yaw_age: float | None = None
 
 
 @dataclass(frozen=True)
@@ -206,7 +285,10 @@ class Action:
 
     vx: float = 0.0
     vy: float = 0.0
-    wz: float = 0.0  # always 0: autonomous drives mecanum-style, it never yaws
+    # Never a heading command — autonomous strafes rather than turning to face
+    # things. Non-zero only when yaw_hold is cancelling rotation the machine
+    # did not ask for.
+    wz: float = 0.0
     lift: int = 0  # signed speed for the up/down motor, -lift_speed..+lift_speed
     drill: int = 0
     actuator: int = 0  # -1 down, 0 hold, +1 up
@@ -234,6 +316,11 @@ class AutonomousSequence:
         self._widest = 0.0
         self._top_seen = False
         self._lift_stopped_by = ""
+        # The heading being held, in the sensor's own degrees. Taken afresh at
+        # the start of ENTER and again at the start of FIND_HOLE: the estimate
+        # drifts at about 0.02 deg/s, so carrying one reference across the whole
+        # sequence would spend the deadband on drift before the search began.
+        self._yaw_ref: float | None = None
         self._message = "waiting for a plate"
 
     def abort(self, why: str) -> None:
@@ -246,6 +333,73 @@ class AutonomousSequence:
         self._phase_started = now
         self._message = message
 
+    def _yaw_fresh(self, obs: Observation) -> bool:
+        return (
+            self.config.yaw_hold
+            and obs.yaw is not None
+            and obs.yaw_age is not None
+            and obs.yaw_age <= self.config.yaw_timeout
+        )
+
+    def _mark_yaw(self, obs: Observation) -> None:
+        """Take the current heading as the one to hold from here on."""
+        if self._yaw_fresh(obs):
+            self._yaw_ref = obs.yaw
+
+    def _yaw_error(self, obs: Observation) -> float | None:
+        """Degrees the machine has turned since the reference, or None."""
+        if self._yaw_ref is None or not self._yaw_fresh(obs):
+            return None
+        assert obs.yaw is not None  # _yaw_fresh guarantees it
+        return wrap_deg(obs.yaw - self._yaw_ref)
+
+    def _yaw_guard(self, obs: Observation) -> str | None:
+        """Reasons to stop rather than steer. None when all is well.
+
+        Aborting on a heading that has simply gone missing looks harsh, but
+        yaw_hold is opt-in: switching it on says the guard is wanted, and a
+        guard that quietly stops guarding is worse than one that never existed.
+        """
+        cfg = self.config
+        if not cfg.yaw_hold:
+            return None
+        if obs.yaw is None or obs.yaw_age is None:
+            return "yaw_hold is on but nothing is publishing a heading"
+        if obs.yaw_age > cfg.yaw_timeout:
+            return (
+                f"heading is {obs.yaw_age:.1f} s stale, past "
+                f"{cfg.yaw_timeout:.1f} s"
+            )
+        error = self._yaw_error(obs)
+        if error is not None and abs(error) > cfg.yaw_abort_deg:
+            return (
+                f"turned {error:+.1f} deg off the held heading, past "
+                f"{cfg.yaw_abort_deg:.0f} deg — more than slip explains"
+            )
+        return None
+
+    def _hold_yaw(self, obs: Observation) -> tuple[float, str]:
+        """The wz that steers back onto the held heading, and what to say.
+
+        Correction only. A positive error means the machine has turned
+        anticlockwise past its reference, so it needs a clockwise wz to come
+        back: hence the negated gain.
+        """
+        cfg = self.config
+        if not cfg.yaw_hold:
+            return 0.0, ""
+        error = self._yaw_error(obs)
+        if error is None:
+            # Not yet referenced. The guard above has already established that
+            # a heading is arriving, so this is only the window before the
+            # first _mark_yaw.
+            return 0.0, ""
+        if abs(error) <= cfg.yaw_deadband_deg:
+            return 0.0, f", yaw {error:+.1f} deg"
+        wz = -cfg.yaw_gain * error
+        wz = max(-cfg.yaw_max_wz, min(cfg.yaw_max_wz, wz))
+        return wz, f", correcting yaw {error:+.1f} deg"
+
     def step(self, obs: Observation) -> Action:
         cfg = self.config
         if self._phase_started == 0.0:
@@ -254,6 +408,15 @@ class AutonomousSequence:
         have_plate = obs.plate_age is not None and obs.plate_offset_x is not None
         plate_fresh = have_plate and obs.plate_age <= cfg.plate_timeout
         elapsed = obs.now - self._phase_started
+
+        # Before any phase acts. A heading that has run away or gone missing is
+        # a reason to stop wherever the machine is, including with the bit in
+        # the hole — carrying on is what breaks it.
+        if self.phase not in TERMINAL:
+            why = self._yaw_guard(obs)
+            if why is not None:
+                self.abort(why)
+                return Action(phase=self.phase, message=self._message)
 
         if self.phase is Phase.WAIT_PLATE:
             if plate_fresh:
@@ -284,6 +447,10 @@ class AutonomousSequence:
                 # would add that distance to every entry.
                 self._entry_mark = self._last_seen_at or obs.distance
                 drifted = obs.distance - self._entry_mark
+                # The last moment the machine was aligned to something real.
+                # Everything from here to the drill is blind, so this is the
+                # heading the hole gets drilled at.
+                self._mark_yaw(obs)
                 self._enter(Phase.ENTER, obs.now,
                             f"plate lost at width {self._widest:.2f}, "
                             f"{drifted:.2f} m ago; "
@@ -318,10 +485,12 @@ class AutonomousSequence:
                 # of the phase.
                 return Action(lift=1, drill=1, phase=self.phase,
                               message=self._message)
+            wz, note = self._hold_yaw(obs)
             self._message = (
-                f"entering blind {travelled:.2f}/{cfg.entry_distance:.2f} m"
+                f"entering blind {travelled:.2f}/{cfg.entry_distance:.2f} m{note}"
             )
-            return Action(vx=cfg.entry_speed, phase=self.phase, message=self._message)
+            return Action(vx=cfg.entry_speed, wz=wz, phase=self.phase,
+                          message=self._message)
 
         if self.phase is Phase.DRILL:
             # The bit turns for the whole phase; the lift pushes up into the
@@ -378,6 +547,13 @@ class AutonomousSequence:
                 why = "lower limit"
                 self._message = f"lift down ({why})"
                 if cfg.hole_stage:
+                    # Re-taken, not carried from ENTER: the estimate drifts at
+                    # about 0.02 deg/s and the drill and lift phases between
+                    # here and there can run for a minute and a half. Holding
+                    # the search to its own fresh reference keeps the drift
+                    # inside the deadband instead of eating it before the
+                    # search starts.
+                    self._mark_yaw(obs)
                     self._enter(Phase.FIND_HOLE, obs.now,
                                 f"lift down ({why}); looking for the hole")
                 else:
@@ -402,7 +578,10 @@ class AutonomousSequence:
                 return Action(phase=self.phase, message=self._message)
             if hole_fresh:
                 self._enter(Phase.ALIGN_HOLE, obs.now, "hole found; lining up the actuator")
-            return Action(phase=self.phase, message=self._message)
+            wz, note = self._hold_yaw(obs)
+            if note:
+                self._message = f"{self._message}{note}"
+            return Action(wz=wz, phase=self.phase, message=self._message)
 
         if self.phase is Phase.ALIGN_HOLE:
             if elapsed > cfg.max_hole_align_seconds:
@@ -424,8 +603,14 @@ class AutonomousSequence:
             cap = cfg.hole_max_speed
             vy = max(-cap, min(cap, cfg.hole_gain_x * ex))
             vx = max(-cap, min(cap, cfg.hole_gain_y * ey))
-            self._message = f"lining up dx {ex:+.3f} dy {ey:+.3f}"
-            return Action(vx=vx, vy=vy, phase=self.phase, message=self._message)
+            # The servo itself does not need this — it is closed in the body
+            # frame, so it converges whatever the heading. Staying square is
+            # what keeps the mast off the underbody and the hole inside the
+            # upward camera's view while it converges.
+            wz, note = self._hold_yaw(obs)
+            self._message = f"lining up dx {ex:+.3f} dy {ey:+.3f}{note}"
+            return Action(vx=vx, vy=vy, wz=wz, phase=self.phase,
+                          message=self._message)
 
         if self.phase is Phase.RAISE:
             if elapsed >= cfg.actuator_seconds:

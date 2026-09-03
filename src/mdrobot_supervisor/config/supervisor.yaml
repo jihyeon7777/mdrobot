@@ -236,6 +236,44 @@
     # OFF: the upward camera is not fitted, so nothing publishes ~/hole_offset.
     # With this false the sequence finishes at the drill instead of stalling in
     # find_hole until the timeout. Turn it on once the camera and detector exist.
+    # ── yaw hold, off the IMU (mdrobot_imu) ────────────────────────────────
+    # OFF by default. With it off nothing about the sequence changes.
+    #
+    # What it is for: the mecanum inverse kinematics assumes the wheels hold.
+    # On a smooth floor they do not, and not equally, so a commanded pure
+    # translation comes out as a translation plus a rotation nobody asked for.
+    # Until the IMU was fitted nothing measured that.
+    #
+    # Turning it ON also makes the heading REQUIRED — the sequence aborts if it
+    # goes missing or goes stale. A guard that quietly stops guarding is worse
+    # than one that was never asked for. Do not switch this on until the
+    # sensor's signs have been verified by turning the machine (see
+    # mdrobot_imu/README.md): a wrong sign does not wobble, it drives the error
+    # the wrong way, under a car, with a drill.
+    auto_yaw_hold: false
+    auto_yaw_timeout: 0.5
+    # MEASURED 2026-09-03: driven 90 s and returned to marks on the floor, the
+    # reported heading came back 1.75 deg off — the estimate drifts at roughly
+    # 0.02 deg/s. A deadband much under 2 spends its time chasing that drift
+    # and rotating the machine to match an error that is not there. A 60 s
+    # shuffle at hole-search speed accumulated several degrees of REAL yaw, so
+    # the signal is bigger than the drift — but only just, which is why the
+    # reference is re-taken at the start of the hole search rather than carried
+    # from the entry.
+    auto_yaw_deadband_deg: 2.0
+    auto_yaw_gain: 0.01          # rad/s of wz per degree of heading error
+    # About a fifth of max_angular_z (0.37). This runs under a car: it
+    # corrects, it does not manoeuvre.
+    auto_yaw_max_wz: 0.08
+    # Past this the machine and the estimate disagree by more than slip
+    # explains — a jammed wheel, a sensor come loose, an estimate run away.
+    # Correcting harder is the wrong answer, so the sequence stops. This is
+    # also the guard that watches the DRILL phase, where the wheels are
+    # commanded to zero while a bit cuts into steel and the reaction torque
+    # acts on a machine standing on rollers. Nothing corrects there — turning
+    # with the bit engaged is what breaks it — it only stops.
+    auto_yaw_abort_deg: 15.0
+
     auto_hole_stage: false
     auto_hole_timeout: 0.5        # s without a hole reading before it counts as lost
     auto_hole_target_x: 0.0       # where the actuator sits in the frame, [-1, 1]

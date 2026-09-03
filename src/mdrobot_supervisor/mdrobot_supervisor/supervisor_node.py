@@ -82,6 +82,10 @@ Subscriptions:
                                     x/y normalised [-1, 1]. No publisher yet
   ~/joint_states (sensor_msgs/JointState)  four wheel positions, for the blind
                                     entry distance
+  ~/imu (sensor_msgs/Imu)           attitude from mdrobot_imu. Only the heading
+                                    is used, and only the change in it since a
+                                    reference — what the sensor calls zero does
+                                    not matter. Required when auto_yaw_hold
 
 Publishers:
   ~/cmd_wheel_rpm (std_msgs/Float64MultiArray)
@@ -119,6 +123,13 @@ from the drive node. The hole stage additionally needs ~/hole_offset from an
 upward-facing camera, which is not fitted — auto_hole_stage is off by default and
 the sequence finishes at the drill.
 
+auto_yaw_hold adds ~/imu from mdrobot_imu. It is off by default, and with it off
+nothing about the sequence changes. On, the machine cancels the yaw that wheel
+slip gives it while it is driving blind and while it is shuffling under the car,
+and STOPS — rather than correcting harder — if the heading runs away, goes stale
+or disappears. It never corrects while the bit is in the hole; there it only
+watches, because turning a machine with a drill engaged is what breaks the bit.
+
 Safety
 ------
 Nothing here replaces the board's own failsafe or a physical e-stop. What the
@@ -138,7 +149,7 @@ from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import Point
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Float64MultiArray, Int32MultiArray, String
 
 from mdrobot_rc_bridge.rc_reader import CHANNEL_NAMES, NUM_CHANNELS
@@ -210,6 +221,19 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_retract_seconds", 12.0)
         self.declare_parameter("auto_max_align_seconds", 60.0)
         self.declare_parameter("auto_max_entry_seconds", 60.0)
+        # Yaw hold, off ~/imu (mdrobot_imu). OFF by default: it needs the
+        # sensor fitted and its signs verified by turning the machine, and with
+        # it off every phase behaves exactly as it did before.
+        #
+        # Switching it on also makes the heading REQUIRED: the sequence aborts
+        # if it goes missing or stale, because a guard that quietly stops
+        # guarding is worse than one that was never asked for.
+        self.declare_parameter("auto_yaw_hold", False)
+        self.declare_parameter("auto_yaw_timeout", 0.5)
+        self.declare_parameter("auto_yaw_deadband_deg", 2.0)
+        self.declare_parameter("auto_yaw_gain", 0.01)
+        self.declare_parameter("auto_yaw_max_wz", 0.08)
+        self.declare_parameter("auto_yaw_abort_deg", 15.0)
         self.declare_parameter("auto_hole_stage", False)
         self.declare_parameter("auto_hole_timeout", 0.5)
         self.declare_parameter("auto_hole_target_x", 0.0)
@@ -320,6 +344,13 @@ class SupervisorNode(Node):
                 self.get_parameter("auto_hold_pulse_period").value),
             max_align_seconds=float(self.get_parameter("auto_max_align_seconds").value),
             max_entry_seconds=float(self.get_parameter("auto_max_entry_seconds").value),
+            yaw_hold=bool(self.get_parameter("auto_yaw_hold").value),
+            yaw_timeout=float(self.get_parameter("auto_yaw_timeout").value),
+            yaw_deadband_deg=float(
+                self.get_parameter("auto_yaw_deadband_deg").value),
+            yaw_gain=float(self.get_parameter("auto_yaw_gain").value),
+            yaw_max_wz=float(self.get_parameter("auto_yaw_max_wz").value),
+            yaw_abort_deg=float(self.get_parameter("auto_yaw_abort_deg").value),
             hole_stage=bool(self.get_parameter("auto_hole_stage").value),
             hole_timeout=float(self.get_parameter("auto_hole_timeout").value),
             hole_target_x=float(self.get_parameter("auto_hole_target_x").value),
@@ -351,6 +382,7 @@ class SupervisorNode(Node):
         self.create_subscription(Point, "~/plate_offset", self._on_plate, 10)
         self.create_subscription(Point, "~/hole_offset", self._on_hole, 10)
         self.create_subscription(JointState, "~/joint_states", self._on_joints, 10)
+        self.create_subscription(Imu, "~/imu", self._on_imu, 10)
 
         self._lock = threading.Lock()
         self._rc: list[int] | None = None
@@ -368,6 +400,8 @@ class SupervisorNode(Node):
         self._hole_x: float | None = None
         self._hole_y: float | None = None
         self._hole_wall = 0.0
+        self._yaw: float | None = None
+        self._yaw_wall = 0.0
         # Previous odometry sample, for the plausibility check.
         self._odom_prev: tuple[float, float] | None = None
         # Motor-shaft position per wheel, in WHEEL_NAMES order; None until seen.
@@ -444,6 +478,24 @@ class SupervisorNode(Node):
             )
             return
         self._wheel_positions = [float(p) for p in msg.position]
+
+    def _on_imu(self, msg: Imu) -> None:
+        """Keep the heading, in degrees, from the IMU's orientation.
+
+        Only the CHANGE since a reference matters to the sequence, so what the
+        sensor calls zero is irrelevant — which is just as well, because under a
+        car it is not north and not stable.
+
+        Yaw comes out of the quaternion directly rather than through a transform
+        library: it is one atan2, and the alternative is a dependency on
+        tf_transformations for a single line.
+        """
+        q = msg.orientation
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        with self._lock:
+            self._yaw = math.degrees(math.atan2(siny, cosy))
+            self._yaw_wall = time.monotonic()
 
     def _distance(self) -> float | None:
         """Forward travel in metres, averaged over the four wheels.
@@ -816,6 +868,9 @@ class SupervisorNode(Node):
 
         plate_age = (now - self._plate_wall) if self._plate_wall else None
         hole_age = (now - self._hole_wall) if self._hole_wall else None
+        # None, not a huge age, when nothing has ever arrived: the sequence
+        # tells "no sensor" apart from "sensor gone quiet" and says which.
+        yaw_age = (now - self._yaw_wall) if self._yaw_wall else None
         action = self.sequence.step(Observation(
             now=now,
             plate_offset_x=self._plate_x,
@@ -827,6 +882,8 @@ class SupervisorNode(Node):
             hole_offset_x=self._hole_x,
             hole_offset_y=self._hole_y,
             hole_age=hole_age,
+            yaw=self._yaw,
+            yaw_age=yaw_age,
         ))
         if action.phase.value != self._last_phase:
             self.get_logger().info(

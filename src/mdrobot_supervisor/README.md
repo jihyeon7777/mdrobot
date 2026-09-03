@@ -116,6 +116,9 @@ Selecting the mode is the arming action. The sequence aborts on:
   actuator up through whatever happened to be above it
 - **implausible odometry** — travel faster than the machine was ever commanded
   to move, which is what raw encoder counts read as if taken for radians
+- **heading lost, stale, or run away past `auto_yaw_abort_deg`** — only when
+  `auto_yaw_hold` is on. Switching it on says the guard is wanted, and a guard
+  that quietly stops guarding is worse than one that was never asked for
 
 Switching out of autonomous stops it immediately and resets it.
 
@@ -125,8 +128,51 @@ Switching out of autonomous stops it immediately and resets it.
 correct against, and mecanum wheels slip more than most — the rollers are meant
 to. The travelled distance is an estimate, not a measurement, and it decides
 where a hole gets drilled. Keep `auto_entry_distance` short and
-`auto_entry_speed` low, and treat the timeouts as real guards. An IMU would help
-and is not fitted yet.
+`auto_entry_speed` low, and treat the timeouts as real guards.
+
+**The IMU does not fix this.** Integrating its accelerometer twice over a 15 s
+entry gives about a metre of error even calibrated — worse than the encoders it
+would be replacing. Distance stays on the wheels. What the IMU fixes is the
+*other* thing the kinematics assumes.
+
+### Yaw hold (`auto_yaw_hold`, off by default)
+
+The inverse kinematics assumes the wheels hold. On a smooth floor they do not,
+and not equally, so a commanded pure translation comes out as a translation plus
+a rotation nobody asked for. Until the IMU was fitted nothing measured it.
+
+What that costs is **not** the hole alignment — the hole search is a visual servo
+closed in the body frame, and a rigidly mounted camera and actuator keep their
+relationship whatever the machine's heading, so it converges either way. What it
+costs is everything geometric: the mast sweeping sideways under a car, the hole
+drifting out of the upward camera's view, and above all `drill`, where the wheels
+are commanded to zero while a bit cuts into steel and the reaction torque acts on
+a machine standing on rollers. **A machine that turns with the bit in the hole
+breaks the bit.**
+
+So the sequence corrects where correcting is safe and only watches where it is
+not:
+
+| Phase | What yaw hold does |
+|---|---|
+| `enter` | corrects, reference taken as the plate is lost |
+| `drill`, `lift_down` | **watches only** — aborts past `auto_yaw_abort_deg`, never steers with the bit engaged |
+| `find_hole`, `align_hole` | corrects, reference **re-taken** on arrival |
+
+Measured on this machine, 2026-09-03, before any of it was built:
+
+- driven 90 s and returned to marks on the floor, the reported heading came back
+  **1.75°** off — the estimate drifts at roughly **0.02 °/s**
+- a 60 s shuffle at hole-search speed accumulated **several degrees** of real yaw
+
+The signal is bigger than the drift, which is what makes correcting worth more
+than the error it brings with it. But only just — hence a deadband above the
+measured drift, a reference re-taken at the start of the search rather than
+carried from the entry, and a hard cap on the authority any of it gets.
+
+> **Do not switch this on until the sensor's signs are verified** by turning the
+> machine — see [`mdrobot_imu/README.md`](../mdrobot_imu/README.md). A wrong sign
+> does not wobble. It drives the error the wrong way, under a car, with a drill.
 
 ## Safety
 
@@ -139,6 +185,12 @@ does guarantee:
 - out-of-range equipment values never reach hardware (the bridge clamps them)
 
 ## Known gaps
+
+- **`auto_yaw_hold` has never run on the machine.** The state machine is
+  unit-tested and the sensor is verified end to end, but the two have not been
+  driven together. The drill phase in particular is untested against real
+  reaction torque — that number is still unknown, and `imu_survey` through a
+  drill cycle is what would settle it.
 
 - **`roller_layout` is `unknown`.** It computes as `x` so the base drives, but
   the strafe direction is unverified. It cannot be settled by eye — the roller

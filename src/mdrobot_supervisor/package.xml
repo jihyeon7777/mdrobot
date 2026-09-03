@@ -16,6 +16,8 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <!-- bringup.launch.py starts the attitude sensor alongside the rest -->
+  <exec_depend>mdrobot_imu</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>mdrobot_rc_bridge</exec_depend>
