@@ -2,45 +2,90 @@
 <!--
   The machine, as RViz sees it.
 
-  Geometry is the SAME set of numbers the kinematics uses, in
-  mdrobot_supervisor/config/supervisor.yaml. If you change a wheel radius or a
-  track here and not there, the model will move differently from the robot and
-  look convincing while doing it.
+  CAD frame vs ROS frame
+  ======================
+  The meshes come out of the assembly in the CAD's own frame, which is not
+  REP-103. Worked out from the files themselves rather than assumed:
 
-  The wheel joints are driven by mdrobot_supervisor's odometry_node, which
-  republishes the drive node's joint_states divided by the gear ratio and with
-  the mounting signs undone. Feeding robot_state_publisher the raw motor angles
-  spins these twenty times too far.
+    * the wheel's two non-axle extents match to 0.000%, so its axle is along
+      CAD z — which makes CAD z the machine's left-right axis;
+    * of the two axes left, CAD y must be up: the wheel's lowest point sits at
+      y 9.787 and the body's at 20.439, so the wheels stick out below the body.
+      Read the other way round the chassis would be dragging on the floor.
 
-  Joint axis is "0 1 0" on all four, and a POSITIVE angle drives the machine
-  forward: with +x forward, +y left and +z up, a contact point at (0, 0, -R)
-  under a wheel turning at +omega about +y moves backwards relative to the
-  centre, which is what pushes the machine forward. That matches the sign
-  convention in kinematics.py, so the angles feed straight through.
+  So CAD (x, y, z) = (fore-aft, up, left-right), and one rotation of +90 deg
+  about X takes it to ROS (x forward, y left, z up): (x, y, z) -> (x, -z, y).
+  That is the rpy="${pi/2} 0 0" on every mesh below.
 
-  Swapping in a real mesh: set the `base_mesh` argument to a package:// path.
-  The placeholder box stays the default because a wrong-looking model is
-  obvious, whereas a model that is quietly the wrong SIZE is not.
+  The parts were exported in ASSEMBLY coordinates, so each mesh also carries a
+  translation that brings its own origin to where the link is. Without it a
+  wheel does not spin when its joint turns, it orbits on a lever arm as long as
+  its offset. mesh_check reports those offsets:
+
+    body  bbox centre (256.714, 115.174, 305.300) mm, wheels touch at y 9.787
+    wheel bbox centre ( 74.291,  74.230, 107.614) mm
+
+  Which numbers are true
+  ======================
+  Wheel radius, track and wheelbase are ARGUMENTS, not constants, because the
+  CAD and supervisor.yaml disagree and the disagreement is not settled:
+
+                 supervisor.yaml    measured off the CAD
+    wheel_radius     0.0625 m           0.0644 m
+    wheelbase        0.500 m            0.365 m
+    track            0.575 m            0.395 m
+
+  The radius gap is expected — 0.0625 is the EFFECTIVE rolling radius, checked
+  by driving a commanded 1.000 m, and a loaded tyre rolls smaller than it
+  measures. The other two are not explainable that way, and they matter: the
+  kinematics uses lxy = (wheelbase + track) / 2 as the yaw lever arm, so if the
+  CAD is right the machine has been yawing about 40% faster than commanded. The
+  1 m test could never have caught it, because straight-line distance does not
+  contain track or wheelbase at all.
+
+  Defaults follow supervisor.yaml so the picture shows what the machine
+  BELIEVES. Pass the CAD numbers to see whether they fit the body better:
+
+    ros2 launch mdrobot_description display.launch.py \
+        wheelbase:=0.365 track:=0.395
+
+  The CAD-derived track and wheelbase assume the assembly's bounding box is
+  centred on the wheel pattern. A tape measure across the wheel centres settles
+  it in a way neither the CAD nor this file can.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="mdrobot">
 
-  <!-- Straight from supervisor.yaml. Keep them in step. -->
-  <xacro:property name="wheel_radius" value="0.0625"/>
-  <xacro:property name="track" value="0.575"/>
-  <xacro:property name="wheelbase" value="0.5"/>
-  <xacro:property name="wheel_width" value="0.06"/>
+  <!-- Kinematic geometry. Defaults match mdrobot_supervisor/config/supervisor.yaml. -->
+  <xacro:arg name="wheel_radius" default="0.0625"/>
+  <xacro:arg name="track" default="0.575"/>
+  <xacro:arg name="wheelbase" default="0.5"/>
 
-  <!-- The body placeholder. Sized to the wheel footprint, not measured: it is
-       there so the model reads as a machine, and to be replaced by the mesh. -->
-  <xacro:property name="body_length" value="0.55"/>
-  <xacro:property name="body_width" value="0.42"/>
-  <xacro:property name="body_height" value="0.18"/>
+  <xacro:property name="wheel_radius" value="$(arg wheel_radius)"/>
+  <xacro:property name="track" value="$(arg track)"/>
+  <xacro:property name="wheelbase" value="$(arg wheelbase)"/>
 
-  <xacro:arg name="base_mesh" default=""/>
+  <!-- Placeholder sizes, used only when a mesh is not supplied. -->
+  <xacro:property name="wheel_width" value="0.085"/>
+  <xacro:property name="body_length" value="0.512"/>
+  <xacro:property name="body_width" value="0.610"/>
+  <xacro:property name="body_height" value="0.189"/>
+
+  <xacro:arg name="body_mesh" default="package://mdrobot_description/meshes/body.stl"/>
+  <xacro:arg name="wheel_mesh" default="package://mdrobot_description/meshes/wheel.stl"/>
   <xacro:arg name="mesh_scale" default="0.001 0.001 0.001"/>
+  <xacro:property name="body_mesh" value="$(arg body_mesh)"/>
+  <xacro:property name="wheel_mesh" value="$(arg wheel_mesh)"/>
 
-  <material name="body"><color rgba="0.25 0.28 0.32 1.0"/></material>
-  <material name="rubber"><color rgba="0.10 0.10 0.12 1.0"/></material>
+  <!-- Assembly-coordinate offsets, in metres, from mesh_check. -->
+  <xacro:property name="body_cx" value="0.256714"/>
+  <xacro:property name="body_cz" value="0.305300"/>
+  <xacro:property name="ground_y" value="0.009787"/>
+  <xacro:property name="wheel_cx" value="0.074291"/>
+  <xacro:property name="wheel_cy" value="0.074230"/>
+  <xacro:property name="wheel_cz" value="0.107614"/>
+
+  <material name="body"><color rgba="0.62 0.64 0.67 1.0"/></material>
+  <material name="rubber"><color rgba="0.13 0.13 0.15 1.0"/></material>
   <material name="sensor"><color rgba="0.90 0.55 0.10 1.0"/></material>
 
   <!-- base_link sits on the GROUND at the centre of the wheel footprint, so
@@ -49,35 +94,50 @@
        patch, which is where a real machine pivots. -->
   <link name="base_link">
     <visual>
-      <xacro:if value="${'$(arg base_mesh)' == ''}">
+      <xacro:if value="${body_mesh == ''}">
         <origin xyz="0 0 ${wheel_radius + body_height/2}"/>
         <geometry>
           <box size="${body_length} ${body_width} ${body_height}"/>
         </geometry>
-        <material name="body"/>
       </xacro:if>
-      <xacro:unless value="${'$(arg base_mesh)' == ''}">
-        <!-- CAD exports STL in millimetres and this expects metres, hence the
-             0.001 default scale. A model that comes up a thousand times too
-             big is this, and so is one that is 1000x too small if the export
-             was already in metres — pass mesh_scale:="1 1 1" then. -->
-        <origin xyz="0 0 0" rpy="0 0 0"/>
+      <xacro:unless value="${body_mesh == ''}">
+        <!-- Rx(+90) from CAD to ROS, then the assembly offset removed: x back
+             by the bbox centre, y from CAD z about the centre line, z so the
+             wheels' contact point lands on the floor. -->
+        <origin rpy="${pi/2} 0 0"
+                xyz="${-body_cx} ${body_cz} ${-ground_y}"/>
         <geometry>
-          <mesh filename="$(arg base_mesh)" scale="$(arg mesh_scale)"/>
+          <mesh filename="${body_mesh}" scale="$(arg mesh_scale)"/>
         </geometry>
-        <material name="body"/>
       </xacro:unless>
+      <material name="body"/>
     </visual>
   </link>
 
   <xacro:macro name="wheel" params="name x y">
     <link name="${name}_wheel">
       <visual>
-        <!-- Cylinders are built along z, the axle runs along y. -->
-        <origin rpy="${pi/2} 0 0"/>
-        <geometry>
-          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
-        </geometry>
+        <xacro:if value="${wheel_mesh == ''}">
+          <!-- Cylinders are built along z; the axle runs along y. -->
+          <origin rpy="${pi/2} 0 0"/>
+          <geometry>
+            <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+          </geometry>
+        </xacro:if>
+        <xacro:unless value="${wheel_mesh == ''}">
+          <!-- Same Rx(+90), then the mesh's own bbox centre subtracted so the
+               axle sits on the joint. Get this wrong and the wheel orbits.
+               NOTE: mecanum wheels are chiral and only one was supplied, so all
+               four are drawn with the same handedness. roller_layout is
+               'unknown' on this machine anyway — which way the rollers face has
+               never been settled, and drawing a specific one would be asserting
+               something nobody has checked. -->
+          <origin rpy="${pi/2} 0 0"
+                  xyz="${-wheel_cx} ${wheel_cz} ${-wheel_cy}"/>
+          <geometry>
+            <mesh filename="${wheel_mesh}" scale="$(arg mesh_scale)"/>
+          </geometry>
+        </xacro:unless>
         <material name="rubber"/>
       </visual>
     </link>
@@ -97,8 +157,8 @@
   <xacro:wheel name="rear_right"  x="${-wheelbase/2}" y="${-track/2}"/>
 
   <!-- Where the HWT901B is bolted. The offset is a GUESS — nothing reads it
-       yet, because the heading is used as a change from a reference and a
-       lever arm does not affect an angle. It will matter the moment anything
+       yet, because the heading is used as a change from a reference and a lever
+       arm does not affect an angle. It will matter the moment anything
        transforms the acceleration. Measure it then. -->
   <link name="imu_link">
     <visual>

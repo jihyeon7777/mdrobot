@@ -28,6 +28,7 @@ setup(
     entry_points={
         "console_scripts": [
             "mesh_check = mdrobot_description.mesh_check:main",
+            "mesh_simplify = mdrobot_description.mesh_simplify:main",
         ],
     },
 )

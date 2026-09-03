@@ -22,12 +22,21 @@ What you are looking at is not all equally true:
                          measure a distance off this picture.
 
 Arguments:
-  base_mesh    package:// path to an STL/DAE for the body. Default is a
-               placeholder box, on purpose: an obviously fake model is safer
-               than a real-looking one that is quietly the wrong size.
-  mesh_scale   default "0.001 0.001 0.001", because CAD exports STL in
-               millimetres and URDF wants metres. Pass "1 1 1" if the export
-               was already in metres.
+  body_mesh, wheel_mesh
+               package:// paths to the meshes. Empty string for either falls
+               back to a primitive, which is useful for telling a mesh problem
+               apart from a transform problem.
+  mesh_scale   default "0.001 0.001 0.001": the CAD exports millimetres and
+               URDF reads metres.
+  wheelbase, track, wheel_radius
+               default to supervisor.yaml, which is what the machine BELIEVES.
+               The CAD says 0.365 / 0.395 / 0.0644 and the difference is not
+               settled — see the URDF. To see whether the CAD numbers fit the
+               body better:
+
+                 ros2 launch mdrobot_description display.launch.py \
+                     wheelbase:=0.365 track:=0.395
+
   rviz         false to publish the TF and the model without opening a window,
                which is what you want over a slow SSH link.
 """
@@ -48,8 +57,17 @@ def generate_launch_description() -> LaunchDescription:
     sup_share = get_package_share_directory("mdrobot_supervisor")
 
     args = [
-        DeclareLaunchArgument("base_mesh", default_value=""),
+        DeclareLaunchArgument(
+            "body_mesh",
+            default_value="package://mdrobot_description/meshes/body.stl"),
+        DeclareLaunchArgument(
+            "wheel_mesh",
+            default_value="package://mdrobot_description/meshes/wheel.stl"),
         DeclareLaunchArgument("mesh_scale", default_value="0.001 0.001 0.001"),
+        # Defaults track supervisor.yaml. The CAD disagrees; the URDF says why.
+        DeclareLaunchArgument("wheelbase", default_value="0.5"),
+        DeclareLaunchArgument("track", default_value="0.575"),
+        DeclareLaunchArgument("wheel_radius", default_value="0.0625"),
         DeclareLaunchArgument("rviz", default_value="true"),
         DeclareLaunchArgument(
             "model",
@@ -67,8 +85,12 @@ def generate_launch_description() -> LaunchDescription:
     robot_description = ParameterValue(
         Command([
             "xacro ", LaunchConfiguration("model"),
-            " base_mesh:=", LaunchConfiguration("base_mesh"),
+            " body_mesh:=", LaunchConfiguration("body_mesh"),
+            " wheel_mesh:=", LaunchConfiguration("wheel_mesh"),
             " mesh_scale:='", LaunchConfiguration("mesh_scale"), "'",
+            " wheelbase:=", LaunchConfiguration("wheelbase"),
+            " track:=", LaunchConfiguration("track"),
+            " wheel_radius:=", LaunchConfiguration("wheel_radius"),
         ]),
         value_type=str,
     )
