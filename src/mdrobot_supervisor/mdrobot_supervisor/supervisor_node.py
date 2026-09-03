@@ -128,7 +128,8 @@ nothing about the sequence changes. On, the machine cancels the yaw that wheel
 slip gives it while it is driving blind and while it is shuffling under the car,
 and STOPS — rather than correcting harder — if the heading runs away, goes stale
 or disappears. It never corrects while the bit is in the hole; there it only
-watches, because turning a machine with a drill engaged is what breaks the bit.
+watches, to a much tighter limit, because turning a machine with a drill engaged
+is what breaks the bit.
 
 Safety
 ------
@@ -234,6 +235,7 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_yaw_gain", 0.01)
         self.declare_parameter("auto_yaw_max_wz", 0.08)
         self.declare_parameter("auto_yaw_abort_deg", 15.0)
+        self.declare_parameter("auto_yaw_stationary_abort_deg", 4.0)
         self.declare_parameter("auto_hole_stage", False)
         self.declare_parameter("auto_hole_timeout", 0.5)
         self.declare_parameter("auto_hole_target_x", 0.0)
@@ -351,6 +353,8 @@ class SupervisorNode(Node):
             yaw_gain=float(self.get_parameter("auto_yaw_gain").value),
             yaw_max_wz=float(self.get_parameter("auto_yaw_max_wz").value),
             yaw_abort_deg=float(self.get_parameter("auto_yaw_abort_deg").value),
+            yaw_stationary_abort_deg=float(
+                self.get_parameter("auto_yaw_stationary_abort_deg").value),
             hole_stage=bool(self.get_parameter("auto_hole_stage").value),
             hole_timeout=float(self.get_parameter("auto_hole_timeout").value),
             hole_target_x=float(self.get_parameter("auto_hole_target_x").value),

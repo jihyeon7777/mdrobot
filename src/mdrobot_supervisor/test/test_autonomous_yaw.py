@@ -160,31 +160,64 @@ def test_the_error_is_measured_the_short_way_round_the_circle():
 # --- where the reference is taken -------------------------------------------
 
 def test_the_search_re_zeroes_instead_of_inheriting_the_entry_reference():
-    # The estimate drifts at about 0.02 deg/s and the drill and lift phases in
-    # between can run for a minute and a half. Carrying the entry's reference
-    # through would spend the whole deadband on drift before the search began —
-    # or, past yaw_abort_deg, abort the moment the search started.
-    cfg = config(yaw_abort_deg=15.0)
+    # The estimate drifts at about 0.02 deg/s and the phases in between can run
+    # for a minute and a half. Carrying the entry's reference through would
+    # spend the whole deadband on drift before the search began.
+    cfg = config()
     seq = AutonomousSequence(cfg)
-    t = drive_to_find_hole(seq, cfg, yaw=0.0, drifted_to=10.0)
-    assert seq._yaw_ref == pytest.approx(10.0)
-    # 10 deg from where entry started, but 0 from where the search did, so the
+    t = drive_to_find_hole(seq, cfg, yaw=0.0, drifted_to=3.0)
+    assert seq._yaw_ref == pytest.approx(3.0)
+    # 3 deg from where entry started, but 0 from where the search did, so the
     # search neither corrects for it nor trips on it.
-    action = seq.step(obs(t + 0.1, yaw=10.0))
+    action = seq.step(obs(t + 0.1, yaw=3.0))
     assert seq.phase is Phase.FIND_HOLE
     assert action.wz == 0.0
 
 
-def test_a_drift_that_would_have_aborted_under_one_reference_does_not():
-    # The same run, with the entry reference carried through, would be 20 deg
-    # out at the search and abort on arrival.
-    cfg = config(yaw_abort_deg=15.0)
+def test_every_stationary_phase_takes_its_own_reference():
+    # Otherwise drift accumulated across drill and lift -- which together can
+    # run for a minute and a half -- would arrive at the tight stationary limit
+    # as though the machine had turned.
+    cfg = config(yaw_stationary_abort_deg=4.0)
     seq = AutonomousSequence(cfg)
-    t = drive_to_find_hole(seq, cfg, yaw=0.0, drifted_to=14.0)
-    assert seq.phase is Phase.FIND_HOLE
-    seq.step(obs(t + 0.1, yaw=20.0))
-    # 6 deg past the FRESH reference: corrected, not aborted.
-    assert seq.phase is Phase.FIND_HOLE
+    t = drive_to_enter(seq, yaw=0.0)
+    seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
+    assert seq.phase is Phase.DRILL and seq._yaw_ref == pytest.approx(0.0)
+    # 3 deg of drift through the drill: inside the limit, not a fault.
+    seq.step(obs(t + 1.5, at_top=True, yaw=3.0))
+    assert seq.phase is Phase.DRILL
+    seq.step(obs(t + 1.0 + cfg.drill_seconds, at_top=True, yaw=3.0))
+    assert seq.phase is Phase.LIFT_DOWN
+    # Lift down starts afresh from 3, so another 3 is still not a fault -- where
+    # 6 measured from the drill's reference would have been.
+    assert seq._yaw_ref == pytest.approx(3.0)
+    # Well inside lift_down_seconds: this must fail on the heading or not at
+    # all, not on the lower-limit clock.
+    seq.step(obs(t + 1.1 + cfg.drill_seconds, yaw=6.0))
+    assert seq.phase is Phase.LIFT_DOWN
+
+
+# --- the stationary limit is the tighter one --------------------------------
+
+def test_a_stationary_phase_stops_at_an_error_a_driving_one_would_correct():
+    # Measured: 30 s through a real drill cycle moved the heading 0.42 deg,
+    # which is drift alone. With the wheels stopped the machine has no business
+    # turning, so the limit there can be — and is — far tighter.
+    cfg = config(yaw_abort_deg=15.0, yaw_stationary_abort_deg=4.0)
+
+    driving = AutonomousSequence(cfg)
+    t = drive_to_enter(driving, yaw=0.0)
+    action = driving.step(obs(t + 1.0, yaw=6.0, distance=0.1))
+    assert driving.phase is Phase.ENTER
+    assert action.wz != 0.0  # corrected
+
+    stopped = AutonomousSequence(cfg)
+    t = drive_to_enter(stopped, yaw=0.0)
+    stopped.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
+    assert stopped.phase is Phase.DRILL
+    stopped.step(obs(t + 1.5, yaw=6.0))
+    assert stopped.phase is Phase.ABORT
+    assert "wheels stopped and the hole occupied" in stopped._message
 
 
 def test_the_reference_is_taken_at_the_moment_the_plate_is_lost():
@@ -228,16 +261,18 @@ def test_a_runaway_heading_aborts_rather_than_correcting_harder():
 def test_the_machine_stops_if_it_turns_with_the_bit_in_the_hole():
     # The reason the guard runs in DRILL at all: the wheels are commanded to
     # zero while a bit cuts into steel, and the reaction torque acts on a
-    # machine standing on rollers. Turning now is what breaks the bit.
-    cfg = config(yaw_abort_deg=15.0)
+    # machine standing on rollers. Turning now is what breaks the bit — and
+    # nothing steers it back, because steering it back turns it too.
+    cfg = config(yaw_stationary_abort_deg=4.0)
     seq = AutonomousSequence(cfg)
     t = drive_to_enter(seq, yaw=0.0)
     seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
     assert seq.phase is Phase.DRILL
-    action = seq.step(obs(t + 1.5, yaw=18.0))
+    action = seq.step(obs(t + 1.5, yaw=9.0))
     assert seq.phase is Phase.ABORT
     assert action.drill == 0
     assert action.lift == 0
+    assert action.wz == 0.0
 
 
 def test_a_heading_that_goes_missing_aborts_when_the_guard_was_asked_for():
@@ -271,10 +306,20 @@ def test_an_abort_is_terminal_and_commands_nothing():
 def test_an_abort_threshold_inside_the_deadband_is_rejected():
     # Otherwise the sequence aborts on headings it was told to ignore.
     with pytest.raises(ValueError, match="must exceed"):
-        AutonomousConfig(yaw_deadband_deg=5.0, yaw_abort_deg=3.0)
+        AutonomousConfig(yaw_deadband_deg=5.0, yaw_abort_deg=3.0,
+                         yaw_stationary_abort_deg=3.0)
 
 
-@pytest.mark.parametrize("name", ["yaw_timeout", "yaw_gain", "yaw_max_wz"])
+def test_a_stationary_limit_looser_than_the_driving_one_is_rejected():
+    # The phases with the bit in the hole are the ones that need the tighter
+    # limit; the other way round reads as a typo, not a policy.
+    with pytest.raises(ValueError, match="looser"):
+        AutonomousConfig(yaw_abort_deg=5.0, yaw_stationary_abort_deg=10.0)
+
+
+@pytest.mark.parametrize(
+    "name", ["yaw_timeout", "yaw_gain", "yaw_max_wz",
+             "yaw_stationary_abort_deg"])
 def test_non_positive_yaw_tuning_is_rejected(name):
     with pytest.raises(ValueError, match=name):
         AutonomousConfig(**{name: 0.0})

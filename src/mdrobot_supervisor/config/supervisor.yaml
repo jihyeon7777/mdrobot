@@ -267,12 +267,28 @@
     auto_yaw_max_wz: 0.08
     # Past this the machine and the estimate disagree by more than slip
     # explains — a jammed wheel, a sensor come loose, an estimate run away.
-    # Correcting harder is the wrong answer, so the sequence stops. This is
-    # also the guard that watches the DRILL phase, where the wheels are
-    # commanded to zero while a bit cuts into steel and the reaction torque
-    # acts on a machine standing on rollers. Nothing corrects there — turning
-    # with the bit engaged is what breaks it — it only stops.
+    # Correcting harder is the wrong answer, so the sequence stops.
+    #
+    # This is the DRIVING figure and it is still a placeholder: how far the
+    # heading strays while the correction is actually working has not been
+    # measured, because it has not been run. Measure it and tighten this.
     auto_yaw_abort_deg: 15.0
+    # The STATIONARY figure — drill, lift_down, raise, spray, retract — where
+    # the wheels are commanded to zero and the bit or the actuator is in the
+    # hole. Nothing corrects there: steering a machine back with the bit
+    # engaged turns it just as much as the fault did. It only stops.
+    #
+    # MEASURED 2026-09-03: 30 s through a real drill cycle moved the heading
+    # 0.42 deg — and 0.02 deg/s of drift alone accounts for 0.6 deg over that
+    # window, so the reaction torque's own contribution is not distinguishable
+    # from zero on this floor. The fear that the drill twists the machine was
+    # not borne out. That is what makes 4 deg defensible: nine times the
+    # observed excursion, and still far tighter than the driving limit, which
+    # would have let a real twist go unnoticed.
+    #
+    # Each stationary phase takes its OWN reference, so this is per-phase
+    # rotation, not accumulated drift across the whole sequence.
+    auto_yaw_stationary_abort_deg: 4.0
 
     auto_hole_stage: false
     auto_hole_timeout: 0.5        # s without a hole reading before it counts as lost

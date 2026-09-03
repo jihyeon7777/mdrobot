@@ -153,22 +153,36 @@ breaks the bit.**
 So the sequence corrects where correcting is safe and only watches where it is
 not:
 
-| Phase | What yaw hold does |
-|---|---|
-| `enter` | corrects, reference taken as the plate is lost |
-| `drill`, `lift_down` | **watches only** — aborts past `auto_yaw_abort_deg`, never steers with the bit engaged |
-| `find_hole`, `align_hole` | corrects, reference **re-taken** on arrival |
+| Phase | What yaw hold does | Limit |
+|---|---|---|
+| `enter` | corrects | `auto_yaw_abort_deg` (15°) |
+| `drill`, `lift_down`, `raise`, `spray`, `retract` | **watches only** — never steers with the bit or the actuator in the hole, because steering it back turns it just as much as the fault did | `auto_yaw_stationary_abort_deg` (4°) |
+| `find_hole`, `align_hole` | corrects | `auto_yaw_abort_deg` (15°) |
+
+Every phase in that middle row, plus `enter` and `find_hole`, takes its **own**
+heading reference on entry. At 0.02 °/s the estimate cannot be trusted across
+the whole sequence, so each window watches its own phase rather than the run.
 
 Measured on this machine, 2026-09-03, before any of it was built:
 
 - driven 90 s and returned to marks on the floor, the reported heading came back
   **1.75°** off — the estimate drifts at roughly **0.02 °/s**
 - a 60 s shuffle at hole-search speed accumulated **several degrees** of real yaw
+- 30 s through a **real drill cycle** moved the heading **0.42°** — against the
+  0.6° that drift alone accounts for over that window
 
 The signal is bigger than the drift, which is what makes correcting worth more
 than the error it brings with it. But only just — hence a deadband above the
-measured drift, a reference re-taken at the start of the search rather than
-carried from the entry, and a hard cap on the authority any of it gets.
+measured drift, a reference re-taken per phase rather than carried through, and
+a hard cap on the authority any of it gets.
+
+The drill measurement went the other way from what was expected: **the reaction
+torque did not turn the machine** on that floor. That is what makes the
+stationary limit defensible at 4° — nine times the observed excursion, and still
+far tighter than the 15° driving limit, which would have let a real twist go
+unnoticed. The 15° is itself still a placeholder: how far the heading strays
+while the correction is working has not been measured, because it has not been
+run.
 
 > **Do not switch this on until the sensor's signs are verified** by turning the
 > machine — see [`mdrobot_imu/README.md`](../mdrobot_imu/README.md). A wrong sign
@@ -188,9 +202,8 @@ does guarantee:
 
 - **`auto_yaw_hold` has never run on the machine.** The state machine is
   unit-tested and the sensor is verified end to end, but the two have not been
-  driven together. The drill phase in particular is untested against real
-  reaction torque — that number is still unknown, and `imu_survey` through a
-  drill cycle is what would settle it.
+  driven together. `auto_yaw_abort_deg` (the driving limit) is still a
+  placeholder for that reason — the stationary one is measured, that one is not.
 
 - **`roller_layout` is `unknown`.** It computes as `x` so the base drives, but
   the strafe direction is unverified. It cannot be settled by eye — the roller

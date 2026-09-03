@@ -78,7 +78,12 @@ Measured on this machine, 2026-09-03, before any of this was built:
 
 * driven for 90 s and returned to marks on the floor, the reported heading came
   back 1.75 deg off — so the estimate drifts at roughly 0.02 deg/s;
-* a 60 s shuffle at hole-search speed accumulated several degrees of real yaw.
+* a 60 s shuffle at hole-search speed accumulated several degrees of real yaw;
+* 30 s through a real drill cycle moved the heading 0.42 deg, against the
+  0.6 deg that drift alone accounts for over that window. The reaction torque
+  turning the machine — the thing this was most wanted for — did not happen on
+  that floor. So the stationary limit is tight (4 deg) because it can be, and
+  the driving one is loose (15 deg) because nobody has measured it yet.
 
 The signal is bigger than the drift, which is what makes the correction worth
 more than the error it brings with it. But only just, and only over short
@@ -111,15 +116,6 @@ class Phase(Enum):
 TERMINAL = (Phase.DONE, Phase.ABORT)
 
 
-def wrap_deg(angle: float) -> float:
-    """Fold a heading difference into [-180, 180).
-
-    Half-open at the top, so a given attitude only ever produces one of +180 or
-    -180 and a threshold test cannot see it as inside the limit one tick and
-    outside it the next.
-    """
-    return (angle + 180.0) % 360.0 - 180.0
-
 # Phases that command no wheel motion: the machine is parked with the drill in
 # a hole and only the equipment is running. Losing the RC link during one of
 # these says nothing about whether it is safe to keep holding.
@@ -130,6 +126,23 @@ STATIONARY = (
     Phase.SPRAY,
     Phase.RETRACT,
 )
+
+# Phases that start a FRESH heading reference instead of inheriting one. The
+# estimate drifts at about 0.02 deg/s, so every window it is trusted over has to
+# be kept short — each of these watches its own phase rather than the whole run.
+# ALIGN_HOLE is deliberately absent: it inherits FIND_HOLE's, because the two are
+# one continuous search and re-zeroing halfway would hide the drift between them.
+REFERENCE_PHASES = (Phase.ENTER, Phase.FIND_HOLE) + STATIONARY
+
+
+def wrap_deg(angle: float) -> float:
+    """Fold a heading difference into [-180, 180).
+
+    Half-open at the top, so a given attitude only ever produces one of +180 or
+    -180 and a threshold test cannot see it as inside the limit one tick and
+    outside it the next.
+    """
+    return (angle + 180.0) % 360.0 - 180.0
 
 
 @dataclass(frozen=True)
@@ -211,7 +224,19 @@ class AutonomousConfig:
     # Past this, the machine and the estimate disagree by more than slip
     # explains — a wheel is jammed, the sensor has come loose, or the estimate
     # has run away. Correcting harder is the wrong answer. Stop.
+    #
+    # This is the DRIVING figure and it is still a placeholder: how far the
+    # heading strays while the correction is actually working has not been
+    # measured, because it has not been run.
     yaw_abort_deg: float = 15.0
+    # The STATIONARY figure, for the phases where the wheels are commanded to
+    # zero and the bit or the actuator is in the hole. Much tighter, and it can
+    # be, because it was measured: 30 s through a real drill cycle moved the
+    # heading 0.42 deg — which is what 0.02 deg/s of drift alone would give, so
+    # the reaction torque's contribution is not distinguishable from zero.
+    # Anything approaching this figure is therefore a genuine fault, and this
+    # is the phase where carrying on breaks the bit.
+    yaw_stationary_abort_deg: float = 4.0
 
     max_align_seconds: float = 60.0
     max_entry_seconds: float = 60.0
@@ -223,6 +248,13 @@ class AutonomousConfig:
             raise ValueError(
                 f"hold_pulse_on {self.hold_pulse_on} exceeds hold_pulse_period "
                 f"{self.hold_pulse_period}; use a period of 0 to hold continuously"
+            )
+        if self.yaw_stationary_abort_deg > self.yaw_abort_deg:
+            raise ValueError(
+                f"yaw_stationary_abort_deg {self.yaw_stationary_abort_deg} is "
+                f"looser than yaw_abort_deg {self.yaw_abort_deg}; the phases "
+                f"with the bit in the hole are the ones that need the TIGHTER "
+                f"limit"
             )
         if self.yaw_abort_deg <= self.yaw_deadband_deg:
             raise ValueError(
@@ -237,7 +269,7 @@ class AutonomousConfig:
                      "hole_timeout", "hole_max_speed",
                      "actuator_seconds", "spray_seconds", "retract_seconds",
                      "yaw_timeout", "yaw_deadband_deg", "yaw_gain",
-                     "yaw_max_wz", "yaw_abort_deg",
+                     "yaw_max_wz", "yaw_abort_deg", "yaw_stationary_abort_deg",
                      "max_align_seconds", "max_entry_seconds",
                      "max_find_hole_seconds", "max_hole_align_seconds"):
             if getattr(self, name) <= 0:
@@ -328,10 +360,18 @@ class AutonomousSequence:
         self.phase = Phase.ABORT
         self._message = why
 
-    def _enter(self, phase: Phase, now: float, message: str) -> None:
+    def _enter(self, phase: Phase, obs: "Observation", message: str) -> None:
+        """Move to a phase, and give it a fresh heading reference if it takes one.
+
+        The marking lives here rather than at each transition because there are
+        eleven of them and missing one would leave a phase silently watching a
+        reference that is minutes old.
+        """
         self.phase = phase
-        self._phase_started = now
+        self._phase_started = obs.now
         self._message = message
+        if phase in REFERENCE_PHASES:
+            self._mark_yaw(obs)
 
     def _yaw_fresh(self, obs: Observation) -> bool:
         return (
@@ -371,10 +411,22 @@ class AutonomousSequence:
                 f"{cfg.yaw_timeout:.1f} s"
             )
         error = self._yaw_error(obs)
-        if error is not None and abs(error) > cfg.yaw_abort_deg:
+        if error is None:
+            return None
+        # The wheels are commanded to zero in the stationary phases and the bit
+        # or the actuator is in the hole, so the machine has no business turning
+        # at all — measured, it does not. A much tighter limit therefore costs
+        # nothing and catches the failure that is worth catching.
+        stationary = self.phase in STATIONARY
+        limit = cfg.yaw_stationary_abort_deg if stationary else cfg.yaw_abort_deg
+        if abs(error) > limit:
+            why = (
+                "with the wheels stopped and the hole occupied"
+                if stationary else "more than slip explains"
+            )
             return (
                 f"turned {error:+.1f} deg off the held heading, past "
-                f"{cfg.yaw_abort_deg:.0f} deg — more than slip explains"
+                f"{limit:.0f} deg — {why}"
             )
         return None
 
@@ -421,7 +473,7 @@ class AutonomousSequence:
         if self.phase is Phase.WAIT_PLATE:
             if plate_fresh:
                 self._last_seen_at = obs.distance
-                self._enter(Phase.ALIGN, obs.now, "plate acquired; aligning")
+                self._enter(Phase.ALIGN, obs, "plate acquired; aligning")
             return Action(phase=self.phase, message=self._message)
 
         if self.phase is Phase.ALIGN:
@@ -447,11 +499,10 @@ class AutonomousSequence:
                 # would add that distance to every entry.
                 self._entry_mark = self._last_seen_at or obs.distance
                 drifted = obs.distance - self._entry_mark
-                # The last moment the machine was aligned to something real.
-                # Everything from here to the drill is blind, so this is the
-                # heading the hole gets drilled at.
-                self._mark_yaw(obs)
-                self._enter(Phase.ENTER, obs.now,
+                # _enter takes the reference: the last moment the machine was
+                # aligned to something real, and the heading the hole will be
+                # drilled at.
+                self._enter(Phase.ENTER, obs,
                             f"plate lost at width {self._widest:.2f}, "
                             f"{drifted:.2f} m ago; "
                             f"entering {cfg.entry_distance:.2f} m from there")
@@ -479,7 +530,7 @@ class AutonomousSequence:
                 )
                 return Action(phase=self.phase, message=self._message)
             if travelled >= cfg.entry_distance:
-                self._enter(Phase.DRILL, obs.now,
+                self._enter(Phase.DRILL, obs,
                             f"in position after {travelled:.2f} m; drilling")
                 # Lift and drill start on the same tick, as they do for the rest
                 # of the phase.
@@ -516,7 +567,7 @@ class AutonomousSequence:
             # phase waits for it with the bit already off.
             cutting = elapsed < cfg.drill_seconds
             if not cutting and not rising:
-                self._enter(Phase.LIFT_DOWN, obs.now,
+                self._enter(Phase.LIFT_DOWN, obs,
                             f"hole cut, lift stopped by {self._lift_stopped_by}; "
                             f"lowering the lift")
                 return Action(lift=-1, phase=self.phase, message=self._message)
@@ -547,17 +598,14 @@ class AutonomousSequence:
                 why = "lower limit"
                 self._message = f"lift down ({why})"
                 if cfg.hole_stage:
-                    # Re-taken, not carried from ENTER: the estimate drifts at
-                    # about 0.02 deg/s and the drill and lift phases between
-                    # here and there can run for a minute and a half. Holding
-                    # the search to its own fresh reference keeps the drift
-                    # inside the deadband instead of eating it before the
-                    # search starts.
-                    self._mark_yaw(obs)
-                    self._enter(Phase.FIND_HOLE, obs.now,
+                    # _enter re-takes the reference rather than carrying
+                    # ENTER's: the drill and lift phases between here and there
+                    # can run for a minute and a half, which at 0.02 deg/s
+                    # would eat the deadband before the search started.
+                    self._enter(Phase.FIND_HOLE, obs,
                                 f"lift down ({why}); looking for the hole")
                 else:
-                    self._enter(Phase.RAISE, obs.now,
+                    self._enter(Phase.RAISE, obs,
                                 f"lift down ({why}); raising the actuator")
                     return Action(actuator=1, phase=self.phase, message=self._message)
                 return Action(phase=self.phase, message=self._message)
@@ -577,7 +625,7 @@ class AutonomousSequence:
                 )
                 return Action(phase=self.phase, message=self._message)
             if hole_fresh:
-                self._enter(Phase.ALIGN_HOLE, obs.now, "hole found; lining up the actuator")
+                self._enter(Phase.ALIGN_HOLE, obs, "hole found; lining up the actuator")
             wz, note = self._hold_yaw(obs)
             if note:
                 self._message = f"{self._message}{note}"
@@ -597,7 +645,7 @@ class AutonomousSequence:
             ex = obs.hole_offset_x - cfg.hole_target_x
             ey = obs.hole_offset_y - cfg.hole_target_y
             if abs(ex) <= cfg.hole_tolerance and abs(ey) <= cfg.hole_tolerance:
-                self._enter(Phase.RAISE, obs.now,
+                self._enter(Phase.RAISE, obs,
                             f"lined up (dx {ex:+.3f}, dy {ey:+.3f}); raising")
                 return Action(actuator=1, phase=self.phase, message=self._message)
             cap = cfg.hole_max_speed
@@ -614,14 +662,14 @@ class AutonomousSequence:
 
         if self.phase is Phase.RAISE:
             if elapsed >= cfg.actuator_seconds:
-                self._enter(Phase.SPRAY, obs.now, "actuator up; opening the valve")
+                self._enter(Phase.SPRAY, obs, "actuator up; opening the valve")
                 return Action(solenoid=1, phase=self.phase, message=self._message)
             self._message = f"raising {elapsed:.1f}/{cfg.actuator_seconds:.1f} s"
             return Action(actuator=1, phase=self.phase, message=self._message)
 
         if self.phase is Phase.SPRAY:
             if elapsed >= cfg.spray_seconds:
-                self._enter(Phase.RETRACT, obs.now, "valve shut; lowering the actuator")
+                self._enter(Phase.RETRACT, obs, "valve shut; lowering the actuator")
                 return Action(actuator=-1, phase=self.phase, message=self._message)
             # Pulsed, not continuous: the actuator falls the instant it is not
             # driven, but holding it against the stop for thirty seconds made it
@@ -644,7 +692,7 @@ class AutonomousSequence:
             # Valve already shut — solenoid is 0 from here, so the water stops
             # before the actuator starts moving out of the hole.
             if elapsed >= cfg.retract_seconds:
-                self._enter(Phase.DONE, obs.now, "actuator down; sequence complete")
+                self._enter(Phase.DONE, obs, "actuator down; sequence complete")
                 return Action(phase=self.phase, message=self._message)
             self._message = f"actuator lowering {elapsed:.1f}/{cfg.retract_seconds:.1f} s"
             return Action(actuator=-1, phase=self.phase, message=self._message)
