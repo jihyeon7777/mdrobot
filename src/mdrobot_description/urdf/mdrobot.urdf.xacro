@@ -89,13 +89,19 @@
   <xacro:property name="body_height" value="0.189"/>
 
   <xacro:arg name="body_mesh" default="package://mdrobot_description/meshes/body.stl"/>
-  <xacro:arg name="wheel_mesh" default="package://mdrobot_description/meshes/wheel.stl"/>
-  <!-- Mecanum wheels are chiral and only one hand was exported, so the left
-       pair uses a reflection of it: mesh_simplify with its mirror option on z, which flips the
-       roller hand and reverses the winding so the surface still faces out. A
-       negative <mesh scale> would reflect the geometry and leave the winding,
-       and the wheel would render inside out. -->
+  <!-- Mecanum wheels are chiral and only one hand was exported, so one side
+       is a reflection of it: mesh_simplify with its mirror option on z, which
+       flips the roller hand and reverses the winding so the surface still
+       faces out. A negative <mesh scale> would reflect the geometry and leave
+       the winding alone, and that wheel would render inside out.
+
+       WHICH side takes the mirror was settled by looking at the machine: it is
+       the RIGHT pair. Named by side rather than "the mesh" and "the other
+       one", because the first attempt put it on the wrong pair and the names
+       gave no way to notice. -->
   <xacro:arg name="wheel_mesh_left"
+             default="package://mdrobot_description/meshes/wheel.stl"/>
+  <xacro:arg name="wheel_mesh_right"
              default="package://mdrobot_description/meshes/wheel_mirror.stl"/>
   <xacro:arg name="mesh_scale" default="0.001 0.001 0.001"/>
   <!-- Rotation about ROS z applied AFTER standing the CAD frame up. See the
@@ -105,8 +111,8 @@
   <xacro:property name="body_yaw" value="${radians($(arg body_yaw_deg))}"/>
   <xacro:property name="wheel_yaw" value="${radians($(arg wheel_yaw_deg))}"/>
   <xacro:property name="body_mesh" value="$(arg body_mesh)"/>
-  <xacro:property name="wheel_mesh" value="$(arg wheel_mesh)"/>
   <xacro:property name="wheel_mesh_left" value="$(arg wheel_mesh_left)"/>
+  <xacro:property name="wheel_mesh_right" value="$(arg wheel_mesh_right)"/>
 
   <!-- Assembly-coordinate offsets, in metres, from mesh_check. -->
   <xacro:property name="body_cx" value="0.256714"/>
@@ -163,7 +169,7 @@
         <xacro:unless value="${mesh == ''}">
           <!-- Same Rx(+90), then the mesh's own bbox centre subtracted so the
                axle sits on the joint. Get this wrong and the wheel orbits.
-               The left pair gets the mirrored mesh: which hand goes where is
+               The RIGHT pair gets the mirrored mesh: which hand goes where is
                the operator's call, made by looking at the machine, not
                something the files could settle. roller_layout is still
                'unknown' in supervisor.yaml, so this is what the wheels LOOK
@@ -190,9 +196,9 @@
   <!-- Joint names are the WHEEL_NAMES the whole workspace uses. Rename one and
        robot_state_publisher silently stops turning that wheel. -->
   <xacro:wheel name="front_left"  x="${ wheelbase/2}" y="${ track/2}" mesh="${wheel_mesh_left}"/>
-  <xacro:wheel name="front_right" x="${ wheelbase/2}" y="${-track/2}" mesh="${wheel_mesh}"/>
+  <xacro:wheel name="front_right" x="${ wheelbase/2}" y="${-track/2}" mesh="${wheel_mesh_right}"/>
   <xacro:wheel name="rear_left"   x="${-wheelbase/2}" y="${ track/2}" mesh="${wheel_mesh_left}"/>
-  <xacro:wheel name="rear_right"  x="${-wheelbase/2}" y="${-track/2}" mesh="${wheel_mesh}"/>
+  <xacro:wheel name="rear_right"  x="${-wheelbase/2}" y="${-track/2}" mesh="${wheel_mesh_right}"/>
 
   <!-- Where the HWT901B is bolted. The offset is a GUESS — nothing reads it
        yet, because the heading is used as a change from a reference and a lever

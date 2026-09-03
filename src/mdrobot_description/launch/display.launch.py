@@ -22,10 +22,12 @@ What you are looking at is not all equally true:
                          measure a distance off this picture.
 
 Arguments:
-  body_mesh, wheel_mesh
-               package:// paths to the meshes. Empty string for either falls
-               back to a primitive, which is useful for telling a mesh problem
-               apart from a transform problem.
+  body_mesh, wheel_mesh_left, wheel_mesh_right
+               package:// paths to the meshes. Empty string for any of them
+               falls back to a primitive, which is useful for telling a mesh
+               problem apart from a transform problem. The right pair is a
+               mirror of the left: mecanum wheels are chiral and one hand was
+               exported.
   mesh_scale   default "0.001 0.001 0.001": the CAD exports millimetres and
                URDF reads metres.
   wheelbase, track, wheel_radius
@@ -60,13 +62,14 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "body_mesh",
             default_value="package://mdrobot_description/meshes/body.stl"),
-        DeclareLaunchArgument(
-            "wheel_mesh",
-            default_value="package://mdrobot_description/meshes/wheel.stl"),
-        # The left pair is a reflection: mecanum wheels are chiral and one hand
-        # was exported.
+        # Mecanum wheels are chiral and one hand was exported, so the RIGHT
+        # pair is a reflection of it. Named by side: the first attempt put the
+        # mirror on the wrong pair and the old names gave no way to notice.
         DeclareLaunchArgument(
             "wheel_mesh_left",
+            default_value="package://mdrobot_description/meshes/wheel.stl"),
+        DeclareLaunchArgument(
+            "wheel_mesh_right",
             default_value="package://mdrobot_description/meshes/wheel_mirror.stl"),
         DeclareLaunchArgument("mesh_scale", default_value="0.001 0.001 0.001"),
         # Settled by driving: at 0 the model crabbed sideways while the
@@ -95,8 +98,8 @@ def generate_launch_description() -> LaunchDescription:
         Command([
             "xacro ", LaunchConfiguration("model"),
             " body_mesh:=", LaunchConfiguration("body_mesh"),
-            " wheel_mesh:=", LaunchConfiguration("wheel_mesh"),
             " wheel_mesh_left:=", LaunchConfiguration("wheel_mesh_left"),
+            " wheel_mesh_right:=", LaunchConfiguration("wheel_mesh_right"),
             " mesh_scale:='", LaunchConfiguration("mesh_scale"), "'",
             " body_yaw_deg:=", LaunchConfiguration("body_yaw_deg"),
             " wheel_yaw_deg:=", LaunchConfiguration("wheel_yaw_deg"),
