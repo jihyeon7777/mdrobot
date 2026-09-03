@@ -5,7 +5,20 @@
 # Both controllers sit on the same serial port, so exactly one node opens it.
 /**:
   ros__parameters:
-    port: /dev/ttyUSB0
+    # A by-id path, NOT /dev/ttyUSB0. This machine has two USB-serial adapters
+    # sharing that numbering space — this FTDI on the RS485 motor bus, and the
+    # CH340 the attitude sensor uses — and which one becomes USB0 depends on
+    # the order they enumerate in, which changes across reboots and replugs.
+    #
+    # This has already gone wrong once (2026-09-03): the two swapped, the drive
+    # node opened the sensor, and it sat writing Modbus frames into an
+    # inclinometer and logging CRC errors on the replies. The motor controllers
+    # received NOTHING, and the giveaway in the log was a payload starting 5551
+    # — a WITMOTION acceleration packet, not a Modbus reply. Meanwhile the
+    # sensor's own node had the same tty open, so both ran at reduced rate.
+    #
+    #   ls -l /dev/serial/by-id/
+    port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0
     baudrate: 19200
     timeout: 0.3
 

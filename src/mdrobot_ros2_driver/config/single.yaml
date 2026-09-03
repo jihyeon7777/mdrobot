@@ -9,6 +9,10 @@
 /**:
   ros__parameters:
     device_type: single
+    # Fine when the adapter is the only one plugged in. With more than one,
+    # /dev/ttyUSB<N> is assigned in enumeration order and moves between boots —
+    # use a by-id path instead (`ls -l /dev/serial/by-id/`), or the node will
+    # eventually open somebody else's device. See manual/setup/port-setup.md.
     port: /dev/ttyUSB0
     baudrate: 19200
     motor_id: 1

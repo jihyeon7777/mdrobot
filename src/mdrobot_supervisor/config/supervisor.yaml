@@ -286,6 +286,15 @@
     # observed excursion, and still far tighter than the driving limit, which
     # would have let a real twist go unnoticed.
     #
+    # CAVEAT on that run: the drive node had the wrong serial port at the time
+    # (the two USB adapters had swapped), so the motor controllers were being
+    # sent nothing and the wheels were in an uncommanded state. The drill still
+    # ran — it is commanded through the RC bridge on its own port — so the
+    # reaction torque was real. But whether the wheels were free or holding is
+    # unknown, and free wheels resist a twist less, which makes 0.42 deg a
+    # conservative figure rather than a wrong one. Worth re-running now the
+    # port is fixed.
+    #
     # Each stationary phase takes its OWN reference, so this is per-phase
     # rotation, not accumulated drift across the whole sequence.
     auto_yaw_stationary_abort_deg: 4.0
