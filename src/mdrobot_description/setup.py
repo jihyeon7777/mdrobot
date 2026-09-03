@@ -8,7 +8,7 @@ package_name = "mdrobot_description"
 setup(
     name=package_name,
     version="1.3.0",
-    packages=find_packages(),
+    packages=find_packages(include=["mdrobot_description", "mdrobot_description.*"]),
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
@@ -25,5 +25,9 @@ setup(
     maintainer_email="taesuyim.kopo@gmail.com",
     description="URDF, meshes and an RViz view of the machine, driven by live hardware.",
     license="Apache-2.0",
-    entry_points={"console_scripts": []},
+    entry_points={
+        "console_scripts": [
+            "mesh_check = mdrobot_description.mesh_check:main",
+        ],
+    },
 )
