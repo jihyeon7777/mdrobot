@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>mdrobot_imu</name>
+  <version>1.3.0</version>
+  <description>
+    Publishes a WITMOTION HWT901B attitude sensor as sensor_msgs/Imu. Attitude
+    only: it exists so the machine's yaw and tilt are visible once it is under a
+    vehicle and nothing can see it, not to estimate position — integrating this
+    accelerometer over a blind entry is worse than the wheel odometry it would
+    replace. Shares the robot with the motor bus, not the bus itself.
+  </description>
+  <maintainer email="taesuyim.kopo@gmail.com">Taesu Yim</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>python3-serial</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

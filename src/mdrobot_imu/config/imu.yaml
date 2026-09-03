@@ -1,0 +1,54 @@
+/**:
+  ros__parameters:
+    # The HWT901B enumerates through a CH340 USB-serial adapter, which lands on
+    # a /dev/ttyUSB path — the SAME numbering space as the FTDI motor-controller
+    # adapter. Which one comes up as USB0 depends on plug order, so give it a
+    # by-id path (stable across reboots) rather than a number:
+    #   ls -l /dev/serial/by-id/
+    # On this machine the CH340 is usb-1a86_USB_Serial-if00-port0 and the FTDI
+    # motor bus is usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0. Getting these
+    # two the wrong way round points the IMU driver at the motor controllers.
+    port: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+    # The sensor's factory default. At 9600 with acceleration, angular velocity,
+    # angle, magnetic field and barometer all enabled, one sample is 55 bytes
+    # and 10 Hz already uses 57% of the line. To go faster, raise BOTH the
+    # sensor's baud rate and this — and turn off the content you do not use.
+    baudrate: 9600
+    frame_id: imu_link
+
+    # How often to drain the port. Well above the sample rate on purpose: the
+    # cost is one empty read, and the benefit is that a sample is published
+    # when it arrives instead of up to a poll period later.
+    poll_rate: 100.0
+    # Complain if samples stop. The sensor free-runs, so silence is a fault.
+    min_sample_rate: 5.0
+
+    # ---- MOUNTING: verify these by hand, they are reasoning not measurement --
+    # Turn the robot LEFT  -> yaw must INCREASE
+    # Tip the nose UP      -> pitch must INCREASE
+    # Roll to the RIGHT    -> roll must INCREASE
+    # Watch it with:  ros2 topic echo /mdrobot_imu/attitude_deg
+    # or, with no ROS at all:  python3 -m mdrobot_imu.survey --seconds 60
+    #
+    # yaw_sign is -1 because WITMOTION's yaw increases clockwise seen from
+    # above, like a compass, and REP-103 increases anticlockwise. A sign that is
+    # wrong here does not wobble, it drives the error the wrong way.
+    roll_sign: 1.0
+    pitch_sign: 1.0
+    yaw_sign: -1.0
+    # For a sensor bolted on rotated about Z. A sensor on its side or upside
+    # down needs a real rotation matrix, which this node does not do — remount
+    # it flat.
+    mount_yaw_offset_deg: 0.0
+
+    # Covariance diagonals, as standard deviations. Datasheet typicals
+    # (HWT901B V260209), not measurements of this unit. Measure the real ones
+    # with `imu_survey` standing still and put them here.
+    tilt_stddev_deg: 0.1      # "Inclination accuracy"
+    # 1.0 is the 9-axis figure WITH the magnetic field calibrated. This robot
+    # should run 6-axis (it parks inside a steel car body next to its own BLDC
+    # motors and a running drill), where yaw is gyro-integrated and drifts —
+    # good for the tens of seconds a phase lasts, not for minutes.
+    yaw_stddev_deg: 1.0
+    rate_stddev_dps: 0.07
+    accel_stddev_g: 0.001
