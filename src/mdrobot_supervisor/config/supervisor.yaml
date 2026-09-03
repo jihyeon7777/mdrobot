@@ -17,7 +17,13 @@
     # aborts. The wheels still stop at rc_timeout. The board's USB goes
     # quiet for 0.3-0.8 s often enough that aborting on one gap threw away
     # runs mid-spray and dropped the actuator with them.
-    auto_rc_grace: 2.0
+    # Measured: the link dies for 3.3-3.5 s at a time, every time, about 10.8 s
+    # after the actuator starts moving -- i.e. when it reaches its end stop and
+    # stalls. 2.0 s was just short of riding those out, so the sequence aborted
+    # about a second into the spray, every run. The wheels are already stopped
+    # while this runs, so the only thing riding it out keeps alive is the
+    # equipment the sequence is holding.
+    auto_rc_grace: 5.0
 
     # ── operator sticks ────────────────────────────────────────────────────
     # steer and throttle are the two channels confirmed to carry pulse widths.
