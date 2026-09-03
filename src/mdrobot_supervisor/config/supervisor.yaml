@@ -125,23 +125,22 @@
     # makes: 12 s raising plus 30 s holding through the spray is 42, so 48.
     # Measured stroke is 12 s; at the old 10 the guard was cutting the actuator
     # off mid-travel and it dropped.
-lift_max_run: 75.0      # Measured: a full stroke takes ~53 s, and the old
-                            # 15 s guard cut the operator off three times on the
-                            # way down. The limit switches are the real stop now;
-                            # this is only here for a switch that fails.
+    lift_max_run: 0.0       # Off. The limit switches stop the lift now, at both
+                            # ends, in manual and in the sequence. This clock
+                            # only ever existed because they were not fitted,
+                            # and at 15 s it was cutting the operator off three
+                            # times on a stroke that takes ~53 s.
     actuator_max_run: 48.0
 
-    # Limit switches stop the lift at each end. OFF because they are NOT FITTED
-    # yet — with nothing to stop it the carriage runs into its hard stop and
-    # stalls there, which is what the controller cutting out and the load
-    # dropping looks like. Turn this on the day the switches are wired.
+    # Limit switches stop the lift at each end, in manual and in the sequence.
+    # Fitted and measured: driving the lift to each stop with the channels under
+    # watch, f8 went 0 -> 1 at the top and f9 went 0 -> 1 at the bottom.
     #
-    # limit_active_value is what a TRIGGERED switch reports. Both channels read 0
-    # unwired, so 1 is the likely value; if the lift then refuses to move at all,
-    # the polarity is inverted and this should be 0. Both switches reading
-    # triggered at once is impossible, so that is caught as a fault and the lift
-    # is held at 0.
-limit_gating: true      # measured: the lift hit its upper stop and f8 went
+    # Both switches reading triggered at once is impossible — the carriage
+    # cannot be at both ends — so that is treated as a wiring or polarity fault
+    # and the lift is held at 0 rather than driven on a reading we do not
+    # trust.
+    limit_gating: true      # measured: the lift hit its upper stop and f8 went
                             # 0 -> 1, so a closed switch reads 1
     limit_active_value: 1   # a TRIGGERED switch reports 1, measured on the
                             # upper one at the top of its travel
@@ -199,11 +198,12 @@ limit_gating: true      # measured: the lift hit its upper stop and f8 went
     # switches that should end the lift strokes are not fitted yet.
     auto_drill_seconds: 20.0       # the bit turns this long, all told
     auto_lift_up_seconds: 10.0     # of that, the lift pushes up for the first 10
-auto_lift_down_seconds: 70.0  # Backstop only -- the lower limit switch
-                                  # ends this stroke. A full stroke measured
-                                  # ~53 s, so the old 10 s stopped the lift a
-                                  # fifth of the way down and the actuator then
-                                  # rose into a lift that was still up.
+    auto_lift_down_seconds: 70.0  # NOT the stroke length -- the lower limit
+                                  # switch ends it. This is the fault timeout:
+                                  # a full stroke measured ~53 s, so reaching
+                                  # 70 with no switch means the switch is
+                                  # broken, and the run aborts rather than
+                                  # raise the actuator into a lift still up.
     auto_retract_seconds: 12.0     # actuator down after the valve shuts
     auto_max_align_seconds: 60.0
     auto_max_entry_seconds: 60.0

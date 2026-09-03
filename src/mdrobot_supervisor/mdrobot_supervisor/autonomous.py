@@ -352,9 +352,19 @@ class AutonomousSequence:
         if self.phase is Phase.LIFT_DOWN:
             # The drill is off from here. Nothing goes up again until the lift is
             # all the way down, or the actuator would rise into it.
-            if obs.at_bottom or elapsed >= cfg.lift_down_seconds:
-                why = ("lower limit" if obs.at_bottom
-                       else f"lift_down_seconds with no lower limit")
+            if not obs.at_bottom and elapsed >= cfg.lift_down_seconds:
+                # The switch, not the clock, ends this stroke. Reaching the
+                # clock means the switch never closed on a stroke that takes
+                # about a fifth of it — so the lift's position is unknown, and
+                # raising the actuator into a lift that may still be up is the
+                # one thing this phase exists to prevent.
+                self.abort(
+                    f"lower limit switch never closed in "
+                    f"{cfg.lift_down_seconds:.0f} s; lift position unknown"
+                )
+                return Action(phase=self.phase, message=self._message)
+            if obs.at_bottom:
+                why = "lower limit"
                 self._message = f"lift down ({why})"
                 if cfg.hole_stage:
                     self._enter(Phase.FIND_HOLE, obs.now,
