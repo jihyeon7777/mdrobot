@@ -30,12 +30,15 @@
     # Watch it with:  ros2 topic echo /mdrobot_imu/attitude_deg
     # or, with no ROS at all:  python3 -m mdrobot_imu.survey --seconds 60
     #
-    # yaw_sign is -1 because WITMOTION's yaw increases clockwise seen from
-    # above, like a compass, and REP-103 increases anticlockwise. A sign that is
-    # wrong here does not wobble, it drives the error the wrong way.
+    # MEASURED on this robot, 2026-09-03: the sensor was expected to report a
+    # compass-style clockwise-positive yaw, which would have needed -1. It does
+    # not. Turning the machine left made the published yaw fall, so the sensor's
+    # own yaw already grows anticlockwise like REP-103 and the sign is +1. This
+    # is exactly why the default was flagged as reasoning rather than fact.
+    # roll_sign and pitch_sign are still UNVERIFIED — check them the same way.
     roll_sign: 1.0
     pitch_sign: 1.0
-    yaw_sign: -1.0
+    yaw_sign: 1.0
     # For a sensor bolted on rotated about Z. A sensor on its side or upside
     # down needs a real rotation matrix, which this node does not do — remount
     # it flat.

@@ -39,6 +39,9 @@ import time
 from .frames import wrap_deg
 from .reader import BAUDRATE, ImuReader
 
+# The sensor's factory default output rate, and what the fitted one uses.
+EXPECTED_RATE_HZ = 10.0
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -53,9 +56,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seconds", type=float, default=30.0)
     parser.add_argument("--csv", default=None, help="write every sample here")
     parser.add_argument("--quiet", action="store_true", help="no live line")
+    parser.add_argument("--expect-hz", type=float, default=EXPECTED_RATE_HZ,
+                        help="the sensor's configured output rate")
     args = parser.parse_args(argv)
 
     rows: list[tuple[float, float, float, float, float, float, float]] = []
+    reader = ImuReader(args.port, args.baudrate)
     handle = open(args.csv, "w") if args.csv else None
     if handle:
         handle.write("t,roll_deg,pitch_deg,yaw_deg,gx_dps,gy_dps,gz_dps\n")
@@ -64,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     reference: tuple[float, float, float] | None = None
     try:
-        with ImuReader(args.port, args.baudrate) as reader:
+        with reader:
             while time.monotonic() - started < args.seconds:
                 samples = reader.poll()
                 if not samples:
@@ -103,7 +109,26 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     elapsed = rows[-1][0]
-    print(f"{len(rows)} samples over {elapsed:.1f} s -> {len(rows) / max(elapsed, 1e-9):.1f} Hz")
+    rate = len(rows) / max(elapsed, 1e-9)
+    print(f"{len(rows)} samples over {elapsed:.1f} s -> {rate:.1f} Hz")
+    if reader.dropped:
+        print(f"{reader.dropped} bytes dropped as unframeable")
+    # A rate well under the sensor's configured output rate is not a slow
+    # robot, it is lost bytes. By far the commonest cause is a SECOND process
+    # on the same port -- the node and this tool both running -- because two
+    # readers on one tty each get an arbitrary half of the stream and neither
+    # can frame it. Stop the node before surveying.
+    if rate < 0.75 * args.expect_hz:
+        print(
+            f"\n  !! {rate:.1f} Hz is well under the {args.expect_hz:.0f} Hz "
+            f"the sensor sends at. Bytes are being lost, so this run has GAPS "
+            f"and a peak excursion read off it is a lower bound, not a "
+            f"measurement.\n"
+            f"     First check nothing else has the port open:\n"
+            f"       pgrep -af 'imu_node|imu_survey'\n"
+            f"     Two readers on one tty each get half the stream and neither "
+            f"can frame it.\n"
+        )
     assert reference is not None
     for name, index, ref in (
         ("roll ", 1, reference[0]),

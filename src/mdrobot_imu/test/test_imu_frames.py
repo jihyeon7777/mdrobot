@@ -47,11 +47,14 @@ def test_the_quaternion_is_always_unit_length():
         assert sum(c * c for c in q) == pytest.approx(1.0)
 
 
-def test_the_default_yaw_sign_turns_a_compass_heading_into_rep_103():
-    # WITMOTION yaw grows clockwise from above; REP-103 grows anticlockwise. A
-    # sensor reading +30 (turned 30 deg clockwise) is -30 in ROS.
+def test_a_negative_yaw_sign_reverses_the_sense_of_rotation():
+    # Which sign a robot needs is a property of its mounting and is settled by
+    # turning the machine, not by argument: this one was expected to need -1 on
+    # the grounds that WITMOTION yaw grows clockwise, and measured +1.
     _, _, yaw = to_ros_attitude(0.0, 0.0, 30.0, (1.0, 1.0, -1.0))
     assert yaw == pytest.approx(-30.0)
+    _, _, yaw = to_ros_attitude(0.0, 0.0, 30.0, (1.0, 1.0, 1.0))
+    assert yaw == pytest.approx(30.0)
 
 
 def test_roll_and_pitch_signs_are_applied_independently():

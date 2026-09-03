@@ -48,11 +48,11 @@ def to_ros_attitude(
 ) -> tuple[float, float, float]:
     """Sensor-frame degrees to REP-103 body-frame degrees.
 
-    ``signs`` is (roll, pitch, yaw), each +1 or -1. WITMOTION's yaw increases
-    clockwise seen from above, like a compass; REP-103 increases anticlockwise,
-    so the yaw sign is normally -1. That is reasoning about the convention, not
-    a measurement of how the sensor is bolted to this robot — see the node's
-    docstring for the three checks that settle it.
+    ``signs`` is (roll, pitch, yaw), each +1 or -1. Which way round they go is
+    a property of how the sensor is bolted to a particular robot and cannot be
+    reasoned out: on this one the yaw sign was expected to be -1, on the
+    grounds that WITMOTION yaw grows clockwise like a compass, and turning the
+    machine left proved it +1. See the node's docstring for the three checks.
     """
     return (
         signs[0] * roll,
