@@ -56,7 +56,13 @@ how the sensor is bolted to this robot**. WITMOTION's yaw grows *clockwise*
 seen from above, like a compass; REP-103 grows anticlockwise — hence
 `yaw_sign: -1.0`.
 
-Watch `~/attitude_deg` and check all three:
+```bash
+ros2 launch mdrobot_imu imu.launch.py     # one terminal
+ros2 run mdrobot_imu imu_check            # another
+```
+
+`imu_check` prints one line that updates in place, showing each axis and how far
+it has moved from where you started. Move the machine; every axis must go **UP**:
 
 | Move the robot | The reading must |
 |---|---|
@@ -64,8 +70,20 @@ Watch `~/attitude_deg` and check all three:
 | nose **up** | pitch **increase** |
 | roll **right** | roll **increase** |
 
+An axis that goes down has its sign backwards: flip `<axis>_sign` in
+`config/imu.yaml`, rebuild, check again.
+
+> **Use `imu_check`, not `imu_survey`, for this.** The survey reads the port
+> directly and prints the sensor's own raw degrees with no mounting applied —
+> right for measuring drift, exactly wrong for asking whether the node's output
+> moves the right way.
+
 A sign that is wrong here does not produce a wobble. It produces a controller
 that drives the error the wrong way, under a car, with a drill.
+
+**Measured 2026-09-03:** `yaw_sign` is **+1**. It defaulted to -1 on the
+reasoning that WITMOTION yaw grows clockwise like a compass; turning the machine
+left proved otherwise. `roll_sign` and `pitch_sign` are still unverified.
 
 ### 2. Put the sensor in 6-axis mode
 
@@ -159,7 +177,8 @@ count climbs.
 | `frames.py` | Angle wrapping and the sensor→REP-103 sign mapping. Pure |
 | `reader.py` | Serial transport and sample assembly |
 | `imu_node.py` | The ROS 2 node |
-| `survey.py` | The measurement tool. No ROS |
+| `survey.py` | The drift/excursion measurement tool. No ROS, raw sensor degrees |
+| `check.py` | Live mapped attitude, for settling the mounting signs by hand |
 
 `protocol.py` and `frames.py` carry no I/O and no ROS so the two things that
 actually go wrong — resynchronising a noisy stream, and getting a sign

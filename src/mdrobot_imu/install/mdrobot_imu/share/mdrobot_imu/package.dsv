@@ -1,0 +1,6 @@
+source;share/mdrobot_imu/hook/pythonpath.dsv
+source;share/mdrobot_imu/hook/pythonpath.sh
+source;share/mdrobot_imu/hook/ament_prefix_path.dsv
+source;share/mdrobot_imu/hook/ament_prefix_path.sh
+source;../../build/mdrobot_imu/share/mdrobot_imu/hook/pythonpath_develop.dsv
+source;../../build/mdrobot_imu/share/mdrobot_imu/hook/pythonpath_develop.sh

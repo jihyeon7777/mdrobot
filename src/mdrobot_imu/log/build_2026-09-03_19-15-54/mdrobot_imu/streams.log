@@ -1,0 +1,30 @@
+[1.320s] Invoking command in '/home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu/build --no-deps symlink_data
+[1.815s] running develop
+[2.102s] running egg_info
+[2.102s] creating mdrobot_imu.egg-info
+[2.133s] writing mdrobot_imu.egg-info/PKG-INFO
+[2.134s] writing dependency_links to mdrobot_imu.egg-info/dependency_links.txt
+[2.134s] writing entry points to mdrobot_imu.egg-info/entry_points.txt
+[2.134s] writing requirements to mdrobot_imu.egg-info/requires.txt
+[2.134s] writing top-level names to mdrobot_imu.egg-info/top_level.txt
+[2.135s] writing manifest file 'mdrobot_imu.egg-info/SOURCES.txt'
+[2.194s] reading manifest file 'mdrobot_imu.egg-info/SOURCES.txt'
+[2.195s] writing manifest file 'mdrobot_imu.egg-info/SOURCES.txt'
+[2.233s] running build_ext
+[2.233s] Creating /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/python3.12/site-packages/mdrobot-imu.egg-link (link to .)
+[2.234s] Installing imu_check script to /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/mdrobot_imu
+[2.234s] Installing imu_node script to /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/mdrobot_imu
+[2.234s] Installing imu_survey script to /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/mdrobot_imu
+[2.234s] 
+[2.235s] Installed /home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu
+[2.235s] running symlink_data
+[2.235s] creating /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/ament_index
+[2.235s] creating /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/ament_index/resource_index
+[2.235s] creating /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/ament_index/resource_index/packages
+[2.235s] symbolically linking /home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu/resource/mdrobot_imu -> /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/ament_index/resource_index/packages
+[2.235s] symbolically linking /home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu/package.xml -> /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/mdrobot_imu
+[2.235s] creating /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/mdrobot_imu/launch
+[2.236s] symbolically linking /home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu/launch/imu.launch.py -> /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/mdrobot_imu/launch
+[2.236s] creating /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/mdrobot_imu/config
+[2.236s] symbolically linking /home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu/config/imu.yaml -> /home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/share/mdrobot_imu/config
+[2.378s] Invoked command in '/home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/pi/mdrobot_motor_driver/src/mdrobot_imu/install/mdrobot_imu/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/pi/mdrobot_motor_driver/src/mdrobot_imu/build/mdrobot_imu/build --no-deps symlink_data

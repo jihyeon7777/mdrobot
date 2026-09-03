@@ -32,6 +32,7 @@ setup(
         "console_scripts": [
             "imu_node = mdrobot_imu.imu_node:main",
             "imu_survey = mdrobot_imu.survey:main",
+            "imu_check = mdrobot_imu.check:main",
         ],
     },
 )
