@@ -189,6 +189,11 @@ class Observation:
     # The plate's width as a fraction of the frame: the only range proxy there
     # is, and what tells an arrival apart from a dropped detection.
     plate_width: float | None = None
+    # Lift limit switches, already resolved for polarity and for whether gating
+    # is enabled at all. False means "not there or not trusted", which leaves
+    # the clock in charge exactly as before.
+    at_top: bool = False
+    at_bottom: bool = False
     # Upward camera: where the drilled hole sits in the frame, normalised [-1, 1].
     hole_offset_x: float | None = None
     hole_offset_y: float | None = None
@@ -227,6 +232,8 @@ class AutonomousSequence:
         # moving the point the machine stops at.
         self._last_seen_at = 0.0
         self._widest = 0.0
+        self._top_seen = False
+        self._lift_stopped_by = ""
         self._message = "waiting for a plate"
 
     def abort(self, why: str) -> None:
@@ -317,17 +324,27 @@ class AutonomousSequence:
             return Action(vx=cfg.entry_speed, phase=self.phase, message=self._message)
 
         if self.phase is Phase.DRILL:
-            # The bit turns for the whole phase; the lift only pushes up for the
-            # first lift_up_seconds of it and then holds while the drill
-            # finishes. Limit switches should end the stroke instead of a clock,
-            # and are not fitted.
+            # The bit turns for the whole phase; the lift pushes up into the
+            # underbody until the upper limit switch closes, and then holds
+            # while the drill finishes. lift_up_seconds is only the backstop for
+            # a switch that never closes — a broken wire must not mean pushing
+            # until the phase ends.
             if elapsed >= cfg.drill_seconds:
                 self._enter(Phase.LIFT_DOWN, obs.now, "hole cut; lowering the lift")
                 return Action(lift=-1, phase=self.phase, message=self._message)
-            rising = elapsed < cfg.lift_up_seconds
+            if obs.at_top and not self._top_seen:
+                self._top_seen = True
+                self._lift_stopped_by = f"upper limit at {elapsed:.1f} s"
+            rising = not self._top_seen and elapsed < cfg.lift_up_seconds
+            if not rising and not self._lift_stopped_by:
+                self._lift_stopped_by = (
+                    f"lift_up_seconds ({cfg.lift_up_seconds:.0f} s) with no "
+                    f"upper limit"
+                )
             self._message = (
                 f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
-                f"{', lift rising' if rising else ', lift held'}"
+                + (", lift rising" if rising
+                   else f", lift held — stopped by {self._lift_stopped_by}")
             )
             return Action(lift=1 if rising else 0, drill=1,
                           phase=self.phase, message=self._message)
@@ -335,16 +352,21 @@ class AutonomousSequence:
         if self.phase is Phase.LIFT_DOWN:
             # The drill is off from here. Nothing goes up again until the lift is
             # all the way down, or the actuator would rise into it.
-            if elapsed >= cfg.lift_down_seconds:
+            if obs.at_bottom or elapsed >= cfg.lift_down_seconds:
+                why = ("lower limit" if obs.at_bottom
+                       else f"lift_down_seconds with no lower limit")
+                self._message = f"lift down ({why})"
                 if cfg.hole_stage:
                     self._enter(Phase.FIND_HOLE, obs.now,
-                                "lift down; looking for the hole")
+                                f"lift down ({why}); looking for the hole")
                 else:
                     self._enter(Phase.RAISE, obs.now,
-                                "lift down; raising the actuator")
+                                f"lift down ({why}); raising the actuator")
                     return Action(actuator=1, phase=self.phase, message=self._message)
                 return Action(phase=self.phase, message=self._message)
-            self._message = f"lift lowering {elapsed:.1f}/{cfg.lift_down_seconds:.1f} s"
+            self._message = (
+                f"lift lowering {elapsed:.1f} s, waiting for the lower limit "
+                f"(gives up at {cfg.lift_down_seconds:.0f} s)")
             return Action(lift=-1, phase=self.phase, message=self._message)
 
         seen = (obs.hole_offset_x, obs.hole_offset_y, obs.hole_age)

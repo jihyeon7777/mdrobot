@@ -362,6 +362,8 @@ class SupervisorNode(Node):
         self._plate_x: float | None = None
         self._plate_w: float | None = None
         self._last_equipment: list[int] | None = None
+        self._limit_top = False
+        self._limit_bottom = False
         self._plate_wall = 0.0
         self._hole_x: float | None = None
         self._hole_y: float | None = None
@@ -712,6 +714,7 @@ class SupervisorNode(Node):
         self._auto_lift = 0
         self._auto_actuator = 0
         self._auto_solenoid = 0
+        self._limit_top, self._limit_bottom = self._limits(rc)
         if mode == self.mode_autonomous:
             vx, vy, wz, auto_drill = self._autonomous(now, brake)
         else:
@@ -817,6 +820,8 @@ class SupervisorNode(Node):
             now=now,
             plate_offset_x=self._plate_x,
             plate_width=self._plate_w,
+            at_top=self._limit_top,
+            at_bottom=self._limit_bottom,
             plate_age=plate_age,
             distance=distance,
             hole_offset_x=self._hole_x,
@@ -918,6 +923,21 @@ class SupervisorNode(Node):
             return 0
         self._at_bottom = False
         return lift
+
+    def _limits(self, rc: list[int]) -> tuple[bool, bool]:
+        """(at_top, at_bottom), or (False, False) when they cannot be trusted.
+
+        False means "the clock is in charge", which is what the sequence did
+        before the switches were fitted. Both closed at once is a wiring or
+        polarity fault, not a position, so it reports neither.
+        """
+        if not self.limit_gating:
+            return False, False
+        at_top = rc[CH["limit_up"]] == self.limit_active_value
+        at_bottom = rc[CH["limit_down"]] == self.limit_active_value
+        if at_top and at_bottom:
+            return False, False
+        return at_top, at_bottom
 
     # ── output ──────────────────────────────────────────────────────────────
     def _publish(self, wheel_rpm: list[float], command: list[int], mode: str) -> None:
