@@ -96,6 +96,11 @@ Publishers:
       which of base / mecanum / autonomous the operator's switch selects
   ~/auto_phase (std_msgs/String)
       the sequence's current phase, empty when not in autonomous
+  ~/auto_detail (std_msgs/String)
+      the same phase plus the twist it is commanding and its own account of
+      why, every tick. This is what tells a strafe onto a plate the camera saw
+      move apart from a turn the heading hold asked for: one is vy, the other
+      is wz. Echo it while an approach runs.
   ~/diagnostics (diagnostic_msgs/DiagnosticArray)
 
 Modes
@@ -385,6 +390,13 @@ class SupervisorNode(Node):
         self.pub_mode = self.create_publisher(String, "~/mode", 10)
         self.pub_diag = self.create_publisher(DiagnosticArray, "~/diagnostics", 1)
         self.pub_phase = self.create_publisher(String, "~/auto_phase", 10)
+        # The phase NAME alone cannot answer the question that actually comes
+        # up while watching an approach: is it strafing because the camera saw
+        # the plate move, or turning because the heading hold decided it had
+        # drifted? One is vy, the other is wz, and until this existed neither
+        # was visible -- the phase message carrying them was logged only when
+        # the phase CHANGED, and align is one phase for the whole approach.
+        self.pub_detail = self.create_publisher(String, "~/auto_detail", 10)
         self.create_subscription(Int32MultiArray, "~/rc", self._on_rc, 10)
         self.create_subscription(Point, "~/plate_offset", self._on_plate, 10)
         self.create_subscription(Point, "~/hole_offset", self._on_hole, 10)
@@ -892,10 +904,18 @@ class SupervisorNode(Node):
             yaw=self._yaw,
             yaw_age=yaw_age,
         ))
+        detail = (
+            f"{action.phase.value} | vx {action.vx:+.3f} vy {action.vy:+.3f} "
+            f"wz {action.wz:+.3f} | {action.message}"
+        )
+        self.pub_detail.publish(String(data=detail))
         if action.phase.value != self._last_phase:
-            self.get_logger().info(
-                f"autonomous: {action.phase.value} - {action.message}"
-            )
+            self.get_logger().info(f"autonomous: {detail}")
+        else:
+            # Throttled, so an approach that takes a minute leaves a trail
+            # without burying the log.
+            self.get_logger().info(f"autonomous: {detail}",
+                                   throttle_duration_sec=1.0)
         self._publish_phase(action.phase.value)
         self._auto_lift = action.lift
         self._auto_actuator = action.actuator
