@@ -1,0 +1,29 @@
+# mdrobot_gpio — indicator LEDs on the Pi's own header pins.
+#
+#   ros2 launch mdrobot_gpio led.launch.py
+/**:
+  ros__parameters:
+    # On a Pi 5 the 40-pin header is "pinctrl-rp1", which is /dev/gpiochip4 —
+    # confirmed here: [0, 54, 'gpiochip4', 'pinctrl-rp1']. It is root:dialout,
+    # so this needs no sudo from a user who can already open the serial ports.
+    # A Pi 4 would be chip 0; check with `ls /sys/bus/gpio/devices/*/label`.
+    chip: 4
+
+    # BCM numbering — the numbers on a pinout diagram, not header positions.
+    plate_pin: 17     # lit while the plate is being detected
+    brake_pin: -1     # -1 until a pin is given
+
+    # false if the LED is wired to sink rather than source, i.e. the pin pulls
+    # the cathode low to light it.
+    active_high: true
+
+    # How long the plate lamp stays lit after the last sighting. The detector
+    # drops out for a beat at a time on a plate that is plainly in view, and
+    # without a hold the lamp flickers and says LESS than the topic it
+    # replaced. Raise it if it still blinks; lower it if it lies about a plate
+    # that has already gone.
+    plate_hold: 1.0
+
+    # How often the pins are refreshed. Only the hold needs this — nothing here
+    # is fast, and the lamp has to go dark on a timer rather than on a message.
+    update_rate: 20.0
