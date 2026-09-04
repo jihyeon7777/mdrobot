@@ -407,7 +407,10 @@ def test_a_reading_that_collapses_in_width_is_not_steered_at():
     # when the real plate is rejected another candidate wins and the offset
     # points at that. Measured: the plate runs 0.35-0.63, the competition
     # 0.10-0.16. A plate being approached only grows.
-    cfg = config(plate_shrink_ratio=0.5, align_gain=0.4, align_max_speed=0.4)
+    # min_approach_width high, so the collapse cannot be read as an arrival and
+    # this isolates the one question: does it steer at the impostor?
+    cfg = config(plate_shrink_ratio=0.5, align_gain=0.4, align_max_speed=0.4,
+                 min_approach_width=0.9)
     seq = AutonomousSequence(cfg)
     seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.60))
     steered = seq.step(obs(0.5, plate_offset_x=0.1, plate_age=0.0, plate_width=0.60))
