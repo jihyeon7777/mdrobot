@@ -155,13 +155,37 @@ not:
 
 | Phase | What yaw hold does | Limit |
 |---|---|---|
-| `enter` | corrects | `auto_yaw_abort_deg` (15°) |
+| `align` | corrects, reference taken as the plate is acquired | `auto_yaw_abort_deg` (15°) |
+| `enter` | corrects, **inherits** align's reference | `auto_yaw_abort_deg` (15°) |
 | `drill`, `lift_down`, `raise`, `spray`, `retract` | **watches only** — never steers with the bit or the actuator in the hole, because steering it back turns it just as much as the fault did | `auto_yaw_stationary_abort_deg` (4°) |
 | `find_hole`, `align_hole` | corrects | `auto_yaw_abort_deg` (15°) |
 
-Every phase in that middle row, plus `enter` and `find_hole`, takes its **own**
+`align` is the phase that needs this most. It strafes at up to
+`auto_align_max_speed` while creeping forward, and sideways is the direction
+mecanum rollers give up in first — a machine that yaws while it slides sees the
+plate move because the **camera** turned, not the body, and enters the car
+crooked.
+
+Every phase in the middle row, plus `align` and `find_hole`, takes its **own**
 heading reference on entry. At 0.02 °/s the estimate cannot be trusted across
 the whole sequence, so each window watches its own phase rather than the run.
+Two phases deliberately inherit instead: `enter` continues on `align`'s (the
+approach is one run on one heading, and re-zeroing at the plate-loss would
+adopt whatever heading it drifted to while the detector was blind), and
+`align_hole` continues on `find_hole`'s.
+
+### Speeds
+
+The **detector**, not the wheels, sets how fast the approach can usefully go:
+measured at 0.43 Hz with gaps up to 5.5 s, so at 0.08 m/s the machine covers
+44 cm between sightings with nothing to steer on. `auto_approach_speed` and
+`auto_entry_speed` are 0.05 for that reason; slower is better while
+`auto_max_align_seconds` allows it.
+
+`auto_align_max_speed` caps the strafe the way `auto_hole_max_speed` caps the
+hole search. Capping rather than lowering `auto_align_gain` keeps a small
+offset closing briskly and only slows the large ones — which are the ones that
+slide.
 
 Measured on this machine, 2026-09-03, before any of it was built:
 

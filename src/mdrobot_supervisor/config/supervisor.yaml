@@ -183,14 +183,25 @@
     # width at the moment the plate is lost.
     auto_min_approach_width: 0.45
     auto_align_gain: 0.4         # strafe m/s per unit of normalised plate offset
+    # Cap on the strafe, as auto_hole_max_speed caps the hole search. Without
+    # one a plate at the edge of frame asks for 0.4 m/s sideways -- eight times
+    # the hole search, in the direction mecanum rollers give up in first. The
+    # cap keeps a small offset closing briskly and only slows the big ones,
+    # which is what lowering the gain instead would not do.
+    auto_align_max_speed: 0.10
     auto_align_tolerance: 0.08   # |offset.x| this small counts as centred
-    auto_approach_speed: 0.08    # m/s forward while aligning
+    # 0.08 -> 0.05. The DETECTOR sets the useful speed here, not the wheels:
+    # measured at 0.43 Hz with gaps up to 5.5 s, so at 0.08 m/s the machine
+    # covers 44 cm between sightings with nothing to steer on. At 0.05 it is
+    # 28 cm. Slower still is better if the phase has time -- the ceiling is
+    # auto_max_align_seconds.
+    auto_approach_speed: 0.05    # m/s forward while aligning
     # m to travel blind after losing the plate. 0.2 for bench testing — the
     # real value is the distance from where the plate leaves the camera's view
     # to the centre of the underbody, and has to be measured on the target
     # vehicle before this drives under anything.
     auto_entry_distance: 0.1
-    auto_entry_speed: 0.08       # m/s forward while entering
+    auto_entry_speed: 0.05       # m/s forward while entering
     # The working sequence once the machine is under the car. The lift and the
     # drill start together — the bit spins while the lift pushes it up into the
     # underbody — then the lift comes back down, the actuator goes up into the

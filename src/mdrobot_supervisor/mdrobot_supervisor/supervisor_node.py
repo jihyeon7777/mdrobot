@@ -212,10 +212,11 @@ class SupervisorNode(Node):
         self.declare_parameter("wheel_position_units", "unset")
         self.declare_parameter("auto_plate_timeout", 0.5)
         self.declare_parameter("auto_align_gain", 0.4)
+        self.declare_parameter("auto_align_max_speed", 0.10)
         self.declare_parameter("auto_align_tolerance", 0.08)
-        self.declare_parameter("auto_approach_speed", 0.08)
+        self.declare_parameter("auto_approach_speed", 0.05)
         self.declare_parameter("auto_entry_distance", 1.2)
-        self.declare_parameter("auto_entry_speed", 0.08)
+        self.declare_parameter("auto_entry_speed", 0.05)
         self.declare_parameter("auto_drill_seconds", 20.0)
         self.declare_parameter("auto_lift_up_seconds", 10.0)
         self.declare_parameter("auto_lift_down_seconds", 10.0)
@@ -331,6 +332,8 @@ class SupervisorNode(Node):
         self.auto_config = AutonomousConfig(
             plate_timeout=float(self.get_parameter("auto_plate_timeout").value),
             align_gain=float(self.get_parameter("auto_align_gain").value),
+            align_max_speed=float(
+                self.get_parameter("auto_align_max_speed").value),
             align_tolerance=float(self.get_parameter("auto_align_tolerance").value),
             approach_speed=float(self.get_parameter("auto_approach_speed").value),
             entry_distance=float(self.get_parameter("auto_entry_distance").value),

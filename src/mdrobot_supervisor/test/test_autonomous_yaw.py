@@ -220,9 +220,22 @@ def test_a_stationary_phase_stops_at_an_error_a_driving_one_would_correct():
     assert "wheels stopped and the hole occupied" in stopped._message
 
 
-def test_the_reference_is_taken_at_the_moment_the_plate_is_lost():
+def test_the_reference_is_taken_when_the_plate_is_acquired():
+    # ALIGN takes it, not ENTER: the approach is one continuous run on one
+    # heading from the plate coming into view to the drill going in.
+    seq = AutonomousSequence(config())
+    seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.6, yaw=30.0))
+    assert seq.phase is Phase.ALIGN
+    assert seq._yaw_ref == pytest.approx(30.0)
+
+
+def test_the_entry_inherits_the_alignment_reference():
+    # Re-zeroing at the plate-loss would adopt whatever heading the machine had
+    # drifted to during plate_timeout -- seconds of driving with no offset to
+    # steer on, which is exactly when it is most likely to have wandered.
     seq = AutonomousSequence(config())
     drive_to_enter(seq, yaw=30.0)
+    assert seq.phase is Phase.ENTER
     assert seq._yaw_ref == pytest.approx(30.0)
 
 
@@ -331,3 +344,57 @@ def test_non_positive_yaw_tuning_is_rejected(name):
 )
 def test_wrap_deg_folds_into_a_half_open_turn(angle, folded):
     assert wrap_deg(angle) == pytest.approx(folded)
+
+
+# --- ALIGN: the phase that slides hardest -----------------------------------
+
+def test_align_holds_the_heading_while_it_strafes():
+    # Sideways is where mecanum rollers give up first, and this phase strafes
+    # at up to align_max_speed. A machine that yaws while it slides sees the
+    # plate move because the CAMERA turned, and enters the car crooked.
+    cfg = config(yaw_gain=0.01, yaw_max_wz=1.0)
+    seq = AutonomousSequence(cfg)
+    seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.6, yaw=0.0))
+    assert seq.phase is Phase.ALIGN
+    action = seq.step(obs(0.5, plate_offset_x=0.5, plate_age=0.0,
+                          plate_width=0.6, yaw=5.0))
+    assert action.wz == pytest.approx(-0.05)
+    assert action.vy != 0.0  # still strafing onto the plate
+    assert "correcting yaw +5.0 deg" in action.message
+
+
+def test_the_strafe_is_capped():
+    # A plate at the edge of frame asks for align_gain m/s sideways; the cap is
+    # what stops the phase that most needs the heading held from being the one
+    # sliding hardest.
+    cfg = config(align_gain=0.4, align_max_speed=0.1)
+    seq = AutonomousSequence(cfg)
+    seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.6))
+    action = seq.step(obs(0.5, plate_offset_x=1.0, plate_age=0.0, plate_width=0.6))
+    assert action.vy == pytest.approx(-0.1)
+    action = seq.step(obs(1.0, plate_offset_x=-1.0, plate_age=0.0, plate_width=0.6))
+    assert action.vy == pytest.approx(0.1)
+
+
+def test_a_small_offset_is_not_slowed_by_the_cap():
+    # Capping rather than lowering the gain is the point: close offsets still
+    # close at the gain's speed.
+    cfg = config(align_gain=0.4, align_max_speed=0.1)
+    seq = AutonomousSequence(cfg)
+    seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.6))
+    action = seq.step(obs(0.5, plate_offset_x=0.15, plate_age=0.0, plate_width=0.6))
+    assert action.vy == pytest.approx(-0.4 * 0.15)
+
+
+def test_the_heading_is_held_even_while_the_detector_is_blind():
+    # A plate that vanishes while still narrow is a dropped detection, so the
+    # machine keeps closing with nothing to steer on. The heading is the one
+    # thing still measured.
+    cfg = config(yaw_gain=0.01, yaw_max_wz=1.0, min_approach_width=0.45)
+    seq = AutonomousSequence(cfg)
+    seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.2, yaw=0.0))
+    seq.step(obs(0.5, plate_offset_x=0.0, plate_age=0.0, plate_width=0.2, yaw=0.0))
+    action = seq.step(obs(1.0, plate_age=99.0, yaw=5.0))
+    assert seq.phase is Phase.ALIGN  # too narrow to count as an arrival
+    assert action.vy == 0.0          # no offset to steer on
+    assert action.wz == pytest.approx(-0.05)   # but the heading is still held

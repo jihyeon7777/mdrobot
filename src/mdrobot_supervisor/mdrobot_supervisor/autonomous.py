@@ -71,8 +71,12 @@ machine standing on rollers. A machine that turns with the bit in the hole
 breaks the bit.
 
 So yaw_hold corrects where correcting is safe (the phases that are already
-driving) and only WATCHES where it is not (the phases with the bit in the
-hole), aborting instead.
+driving: ALIGN, ENTER, FIND_HOLE, ALIGN_HOLE) and only WATCHES where it is not
+(the phases with the bit or the actuator in the hole), aborting instead.
+
+ALIGN is the one that needs it most and was the last to get it. It strafes at
+up to align_gain m/s, eight times the hole search, and sideways is the
+direction mecanum rollers give up in first.
 
 Measured on this machine, 2026-09-03, before any of this was built:
 
@@ -129,10 +133,21 @@ STATIONARY = (
 
 # Phases that start a FRESH heading reference instead of inheriting one. The
 # estimate drifts at about 0.02 deg/s, so every window it is trusted over has to
-# be kept short — each of these watches its own phase rather than the whole run.
-# ALIGN_HOLE is deliberately absent: it inherits FIND_HOLE's, because the two are
-# one continuous search and re-zeroing halfway would hide the drift between them.
-REFERENCE_PHASES = (Phase.ENTER, Phase.FIND_HOLE) + STATIONARY
+# be kept short.
+#
+# Two phases deliberately inherit rather than re-zero, because each is the
+# second half of something that started earlier:
+#
+#   ENTER inherits ALIGN's. The approach is one continuous run on one heading
+#   from the moment the plate is acquired to the moment the drill goes in, and
+#   re-zeroing at the plate-loss would adopt whatever heading the machine had
+#   drifted to during the timeout — up to plate_timeout of driving with no
+#   offset to steer on. Together they are well under a minute in practice, so
+#   the drift stays inside the deadband.
+#
+#   ALIGN_HOLE inherits FIND_HOLE's, because the two are one continuous search
+#   and re-zeroing halfway would hide the drift between them.
+REFERENCE_PHASES = (Phase.ALIGN, Phase.FIND_HOLE) + STATIONARY
 
 
 def wrap_deg(angle: float) -> float:
@@ -157,10 +172,19 @@ class AutonomousConfig:
     # that vanishes while still narrow has not been reached, it has been lost.
     min_approach_width: float = 0.45
     align_gain: float = 0.4  # strafe m/s per unit of normalised plate offset
+    # Cap on the strafe, the way hole_max_speed caps the hole search. Without
+    # one a plate at the edge of frame asks for align_gain m/s sideways, which
+    # is where mecanum rollers give up first and the phase that most needs the
+    # heading held is the one sliding hardest. Capping rather than lowering the
+    # gain keeps a small offset closing briskly and only slows the big ones.
+    align_max_speed: float = 0.10
     align_tolerance: float = 0.08  # |offset.x| this small counts as centred
-    approach_speed: float = 0.08  # m/s forward while aligning
+    # The detector, not the wheels, sets how fast this can usefully go:
+    # measured at 0.43 Hz with gaps up to 5.5 s, so at 0.08 m/s the machine
+    # covers 44 cm between sightings, open-loop. At 0.05 that is 28 cm.
+    approach_speed: float = 0.05  # m/s forward while aligning
     entry_distance: float = 1.2  # m to travel blind after losing the plate
-    entry_speed: float = 0.08  # m/s forward while entering
+    entry_speed: float = 0.05  # m/s forward while entering
     # The working sequence, once the machine is under the car. The lift and the
     # drill start together: the drill spins while the lift pushes it up into the
     # underbody. Timed for now — the limit switches that should end the up
@@ -264,6 +288,7 @@ class AutonomousConfig:
             )
         for name in ("plate_timeout", "min_approach_width", "align_gain",
                      "approach_speed",
+                     "align_max_speed",
                      "entry_distance", "entry_speed", "drill_seconds",
                      "lift_up_seconds", "lift_down_seconds",
                      "hole_timeout", "hole_max_speed",
@@ -491,8 +516,11 @@ class AutonomousSequence:
                         f"car, waiting for it to come back"
                     )
                     # Keep closing straight ahead. There is no offset to steer
-                    # on, so do not strafe on a stale one.
-                    return Action(vx=cfg.approach_speed, phase=self.phase,
+                    # on, so do not strafe on a stale one — but DO hold the
+                    # heading, which is the one thing still measured while the
+                    # detector is blind.
+                    wz, _ = self._hold_yaw(obs)
+                    return Action(vx=cfg.approach_speed, wz=wz, phase=self.phase,
                                   message=self._message)
                 # Measure from where it was last SEEN: the machine has been
                 # driving through the whole timeout, and counting from here
@@ -516,9 +544,16 @@ class AutonomousSequence:
             # +y is LEFT and a positive offset means the plate sits to the RIGHT,
             # so the machine has to strafe right: negate.
             vy = 0.0 if abs(offset) <= cfg.align_tolerance else -cfg.align_gain * offset
+            vy = max(-cfg.align_max_speed, min(cfg.align_max_speed, vy))
+            # This is the phase that needs the heading held most. It strafes at
+            # up to align_gain m/s — eight times the hole search — and sideways
+            # is where mecanum rollers give up first. A machine that yaws while
+            # it slides sees the plate move because the CAMERA turned, not
+            # because the body did, and it enters the car crooked.
+            wz, note = self._hold_yaw(obs)
             centred = "centred" if abs(offset) <= cfg.align_tolerance else "aligning"
-            self._message = f"{centred}, offset {offset:+.3f}"
-            return Action(vx=cfg.approach_speed, vy=vy, phase=self.phase,
+            self._message = f"{centred}, offset {offset:+.3f}{note}"
+            return Action(vx=cfg.approach_speed, vy=vy, wz=wz, phase=self.phase,
                           message=self._message)
 
         if self.phase is Phase.ENTER:
