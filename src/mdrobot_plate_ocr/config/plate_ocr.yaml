@@ -114,6 +114,17 @@
     # rather than steering at a box. Lower it if alignment has to start sooner.
     width_ratio_range: [0.20, 0.75]
 
+    # How lopsided a band may be before it is not a plate face at all. A plate
+    # seen from anywhere the machine can usefully approach from is nearly
+    # square-on; room clutter that reads as a text band has no reason to be.
+    # Measured on the real stand, 48 frames:
+    #     the plate           +0.017 to +0.035   (sd 0.01)
+    #     shelving across the room       -0.483
+    # Nothing in between, and 0.40 sits in that gap with room either side. It
+    # rejects on SHAPE, not on where in the room something is, so it carries
+    # over to a garage laid out differently. 1.0 switches it off.
+    max_skew: 0.40
+
     # How far the detector reaches to join strokes into one band. It has to span
     # the gap between the plate's character groups, and that gap grows with the
     # plate's size in frame. Measured against the true plate centre (~0 in all

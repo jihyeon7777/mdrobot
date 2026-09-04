@@ -173,6 +173,7 @@ class PlateOcrNode(Node):
         self.declare_parameter("offset_from_detection", True)
         self.declare_parameter("detect_only", False)
         self.declare_parameter("width_ratio_range", [0.05, 0.75])
+        self.declare_parameter("max_skew", 0.40)
         self.declare_parameter("band_close_width", 121)
         self.declare_parameter("min_relative_brightness", 1.0)
         self.declare_parameter("publish_image", False)
@@ -219,6 +220,7 @@ class PlateOcrNode(Node):
             detect_only=bool(self.get_parameter("detect_only").value),
             width_ratio_range=tuple(  # type: ignore[arg-type]
                 float(v) for v in self.get_parameter("width_ratio_range").value),
+            max_skew=float(self.get_parameter("max_skew").value),
             band_close_width=int(self.get_parameter("band_close_width").value),
             min_relative_brightness=float(
                 self.get_parameter("min_relative_brightness").value),
@@ -475,6 +477,16 @@ class PlateOcrNode(Node):
                 "elevation_deg": round(offset.elevation_deg, 2),
                 "width_ratio": round(offset.width_ratio, 3),
                 "centre_px": [round(v, 1) for v in offset.centre_px],
+            }
+        if result.skew is not None:
+            skew, left, right = result.skew
+            # Signed foreshortening of the band: + means the LEFT end is taller,
+            # so the left side of the plate is nearer. Reported only; nothing
+            # steers on it until it has been shown to track a deliberate turn.
+            detail["skew"] = {
+                "value": round(skew, 4),
+                "left_px": round(left, 1),
+                "right_px": round(right, 1),
             }
         if best is not None:
             detail.update(

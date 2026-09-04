@@ -167,6 +167,23 @@ class ReadSettings:
     # than that is simply not acted on yet, which is the safe way to be wrong:
     # the sequence waits instead of steering at a cardboard box.
     width_ratio_range: tuple[float, float] = (0.20, 0.75)
+    # How lopsided a band may be before it is not a plate face at all.
+    #
+    # band_skew reports how much taller one end of the band is than the other.
+    # A plate seen from anywhere the machine can usefully approach from is
+    # nearly square-on, so that figure stays small. Room clutter that happens
+    # to read as a text band -- shelving, stairs, a run of horizontal edges --
+    # has no reason to.
+    #
+    # Measured on the real stand, 48 frames: the plate held +0.017 to +0.035
+    # with the sd at 0.01, and the one frame that latched onto the shelving
+    # across the room came out at -0.483. Nothing in between. 0.40 sits in
+    # that gap with room on both sides.
+    #
+    # This rejects on SHAPE rather than on where in the room something is, so
+    # it carries over to a garage whose clutter is arranged differently. Set it
+    # to 1.0 to switch off.
+    max_skew: float = 0.40
     # How far the textband detector reaches to join neighbouring strokes into one
     # band. It has to span the gap between the plate's character groups, and that
     # gap grows with the plate's size in frame. Measured through the real
@@ -242,6 +259,10 @@ class ReadResult:
     attempts: list[Attempt] = field(default_factory=list)
     elapsed_ms: float = 0.0
     offset: Offset | None = None  # of the best attempt's region
+    region: Region | None = None  # where that offset was measured
+    # (skew, left_height_px, right_height_px) -- see band_skew. None when there
+    # was not enough ink at one end of the band to compare with the other.
+    skew: tuple[float, float, float] | None = None
 
     @property
     def accepted(self) -> Attempt | None:
@@ -316,6 +337,55 @@ def estimate_glyph_height(gray: np.ndarray) -> float:
         and stats[i, cv2.CC_STAT_AREA] > 20
     ]
     return float(np.median(heights)) if heights else 0.0
+
+
+def band_skew(
+    gray: np.ndarray, region: Region, settings: ReadSettings
+) -> tuple[float, float, float] | None:
+    """How much taller the band is at one end than the other.
+
+    Returns ``(skew, left_height, right_height)`` in pixels, or None when there
+    is not enough ink to measure. ``skew`` is ``(left - right) / (left +
+    right)``: signed, scale-free, and zero when the two ends match.
+
+    A flat rectangle seen square-on projects to a rectangle. Seen from off to
+    one side it projects to a TRAPEZOID — the near edge subtends a larger
+    angle, so it comes out taller. That difference is the only thing in a
+    single view that separates "I am beside the plate" from "I am turned away
+    from it", and the plate's centre offset cannot: sliding sideways and
+    rotating both move the plate across the frame the same way. One
+    measurement, two unknowns. This is the second measurement.
+
+    Measured on the character strokes rather than the plate's border, because
+    the border is not what this detector finds. That makes it noisier -- glyph
+    heights are not all equal, so which characters land in which third matters
+    -- and it is why this is reported before it is steered on.
+
+    It is also why the plate has to be FLAT. The one it was first tried on was
+    printed on a curled sheet, and a curl reads as skew that no amount of
+    turning the machine will null out.
+
+    The mask is recomputed over the region alone. A crop is a fraction of the
+    frame the detector already swept, so this costs a fraction of the ~34 ms
+    that sweep took, rather than repeating it.
+    """
+    x, y, w, h = region
+    crop = gray[y : y + h, x : x + w]
+    if crop.size == 0 or w < 6:
+        return None
+    mask = textband_mask(crop, settings)
+    heights = (mask > 0).sum(axis=0).astype(float)
+    third = max(1, w // 3)
+    left = heights[:third][heights[:third] > 0]
+    right = heights[-third:][heights[-third:] > 0]
+    # Too little ink at one end to compare against the other.
+    if len(left) < 5 or len(right) < 5:
+        return None
+    lh, rh = float(left.mean()), float(right.mean())
+    total = lh + rh
+    if total <= 0:
+        return None
+    return (lh - rh) / total, lh, rh
 
 
 def find_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:
@@ -468,10 +538,24 @@ class PlateReader:
         best_region = (attempts[-1].region if attempts else regions[0]) if regions else None
         glyph_gray = gray
         offset = None
+        skew = None
         if best_region is not None:
             x, y, w, h = best_region
             glyph_gray = gray[y : y + h, x : x + w]
             offset = offset_from_centre(best_region, gray.shape, settings.hfov_deg)
+            # Reported, not steered on. The centre offset alone cannot separate
+            # being beside the plate from being turned away from it; this is
+            # the second measurement that can. Confirm it tracks a deliberate
+            # turn before anything steers on it.
+            skew = band_skew(gray, best_region, settings)
+            # It IS used to reject, which is a much weaker claim than steering
+            # on it: a band this lopsided is not a plate seen from the front,
+            # whatever its width. Dropping the offset rather than the whole
+            # result keeps the frame's focus and exposure readings, which are
+            # what say why a frame was thrown away.
+            if skew is not None and abs(skew[0]) > settings.max_skew:
+                offset = None
+                best_region = None
 
         elapsed_ms = (cv2.getTickCount() - started) / cv2.getTickFrequency() * 1e3
         return ReadResult(
@@ -481,6 +565,8 @@ class PlateReader:
             attempts=attempts,
             elapsed_ms=elapsed_ms,
             offset=offset,
+            region=best_region,
+            skew=skew,
         )
 
     def _read_line(self, region: Region, crop: np.ndarray) -> Attempt:
