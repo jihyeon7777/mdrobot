@@ -218,11 +218,18 @@
     # 28 cm. Slower still is better if the phase has time -- the ceiling is
     # auto_max_align_seconds.
     auto_approach_speed: 0.05    # m/s forward while aligning
-    # m to travel blind after losing the plate. 0.2 for bench testing — the
-    # real value is the distance from where the plate leaves the camera's view
-    # to the centre of the underbody, and has to be measured on the target
-    # vehicle before this drives under anything.
-    auto_entry_distance: 0.1
+    # m to travel blind after losing the plate. STILL A TEST VALUE, not the
+    # measured one: the real figure is the distance from where the plate leaves
+    # the camera's view to the centre of the underbody, and it has to be
+    # measured on the target vehicle before this drives under anything. The
+    # plate is taped on for now and will move when it is refitted, which moves
+    # this number with it.
+    #
+    # 0.1 -> 0.3 to see more of the entry. At auto_entry_speed that is 6 s,
+    # well inside auto_max_entry_seconds. Nothing else scales with it: the
+    # drill fires wherever this run ends, so every increase is that much
+    # further under the vehicle before the bit turns.
+    auto_entry_distance: 0.3
     auto_entry_speed: 0.05       # m/s forward while entering
     # The working sequence once the machine is under the car. The lift and the
     # drill start together — the bit spins while the lift pushes it up into the
