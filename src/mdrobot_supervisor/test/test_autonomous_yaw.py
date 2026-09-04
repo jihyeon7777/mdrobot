@@ -215,7 +215,8 @@ def test_a_stationary_phase_stops_at_an_error_a_driving_one_would_correct():
     t = drive_to_enter(stopped, yaw=0.0)
     stopped.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
     assert stopped.phase is Phase.DRILL
-    stopped.step(obs(t + 1.5, yaw=6.0))
+    # Past the settle window, or this is the machine still coming to a halt.
+    stopped.step(obs(t + 1.0 + cfg.yaw_settle_seconds + 0.1, yaw=6.0))
     assert stopped.phase is Phase.ABORT
     assert "wheels stopped and the hole occupied" in stopped._message
 
@@ -281,7 +282,7 @@ def test_the_machine_stops_if_it_turns_with_the_bit_in_the_hole():
     t = drive_to_enter(seq, yaw=0.0)
     seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
     assert seq.phase is Phase.DRILL
-    action = seq.step(obs(t + 1.5, yaw=9.0))
+    action = seq.step(obs(t + 1.0 + cfg.yaw_settle_seconds + 0.1, yaw=9.0))
     assert seq.phase is Phase.ABORT
     assert action.drill == 0
     assert action.lift == 0
@@ -449,3 +450,45 @@ def test_a_shrink_ratio_of_one_or_more_is_rejected():
     # At 1.0 the plate is rejected the moment it stops growing.
     with pytest.raises(ValueError, match="plate_shrink_ratio"):
         AutonomousConfig(plate_shrink_ratio=1.0)
+
+
+# --- coming to a halt is not a fault ----------------------------------------
+
+def test_the_stationary_guard_waits_for_the_machine_to_stop():
+    # The tick that ENTERS drill is the first one to command zero; the stop
+    # happens after it. Judging that deceleration against a limit meant for a
+    # bit buried in steel aborted a real run at -4.1 deg before the drill had
+    # done anything.
+    cfg = config(yaw_stationary_abort_deg=4.0, yaw_settle_seconds=1.5)
+    seq = AutonomousSequence(cfg)
+    t = drive_to_enter(seq, yaw=0.0)
+    seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
+    assert seq.phase is Phase.DRILL
+    # Slewing through the stop, well past the limit, inside the window.
+    seq.step(obs(t + 1.5, yaw=-6.0))
+    assert seq.phase is Phase.DRILL
+
+
+def test_the_reference_becomes_the_heading_it_settled_at():
+    # During the window the reference tracks the machine, so what the guard
+    # finally holds is where it came to rest -- not where it was still rolling.
+    # A long drill, so the phase is still running when the window closes and
+    # the assertion is about the guard rather than about the clock.
+    cfg = config(yaw_stationary_abort_deg=4.0, yaw_settle_seconds=1.5,
+                 drill_seconds=20.0, lift_up_seconds=20.0)
+    seq = AutonomousSequence(cfg)
+    t = drive_to_enter(seq, yaw=0.0)
+    seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
+    seq.step(obs(t + 2.0, yaw=-6.0))          # settling, tracked
+    assert seq._yaw_ref == pytest.approx(-6.0)
+    seq.step(obs(t + 3.0, yaw=-6.0))          # past the window, and at rest
+    assert seq.phase is Phase.DRILL           # judged against where it settled
+
+
+def test_the_guard_bites_once_the_window_has_passed():
+    cfg = config(yaw_stationary_abort_deg=4.0, yaw_settle_seconds=1.5)
+    seq = AutonomousSequence(cfg)
+    t = drive_to_enter(seq, yaw=0.0)
+    seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
+    seq.step(obs(t + 3.0, yaw=-6.0))
+    assert seq.phase is Phase.ABORT

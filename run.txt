@@ -1,0 +1,548 @@
+align | vx +0.000 vy +0.000 wz +0.000 | plate acquired; aligning
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.068, yaw +0.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.068, yaw +0.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.068, yaw +0.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.068, yaw +0.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.068, yaw +0.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.068, yaw +0.1 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.068, yaw +0.1 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.068, yaw +0.3 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.065, yaw +0.6 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.065, yaw +0.9 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.065, yaw +1.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.065, yaw +1.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.065, yaw +1.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.037, yaw +1.1 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.037, yaw +1.1 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.037, yaw +1.2 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.037, yaw +1.3 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.037, yaw +1.3 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.033, yaw +1.4 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.033, yaw +1.4 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.033, yaw +1.6 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.033, yaw +1.6 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.033, yaw +1.6 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +1.7 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +1.7 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +1.7 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +1.7 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +1.7 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +1.7 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +1.8 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +1.8 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +1.8 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +1.9 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +1.9 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +1.9 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +1.9 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.017, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.017, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.013, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.013, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.013, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.013, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.013, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.009, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.009, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.009, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.009, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.009, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.008, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.008, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.022 | centred, offset -0.008, correcting yaw +2.2 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.008, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.008, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.008, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.008, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.008, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.008, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.021 | centred, offset -0.008, correcting yaw +2.1 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.016, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.016, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.016, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.016, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.016, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.019, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.019, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.019, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.019, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.019, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.020, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.020, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.020, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.020, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.020, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz -0.020 | centred, offset -0.023, correcting yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +2.0 deg
+---
+align | vx +0.050 vy +0.000 wz +0.000 | centred, offset -0.023, yaw +1.9 deg
+---
+align | vx +0.050 vy -0.035 wz +0.000 | aligning, offset +0.086, yaw +1.9 deg
+---
+align | vx +0.050 vy -0.035 wz +0.000 | aligning, offset +0.086, yaw +1.8 deg
+---
+align | vx +0.050 vy -0.035 wz +0.000 | aligning, offset +0.086, yaw +1.8 deg
+---
+align | vx +0.050 vy -0.035 wz +0.000 | aligning, offset +0.086, yaw +1.8 deg
+---
+align | vx +0.050 vy -0.035 wz +0.000 | aligning, offset +0.086, yaw +1.7 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +1.6 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +1.6 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +1.6 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +1.5 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +1.5 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +1.3 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +1.2 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +1.1 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +0.6 deg
+---
+align | vx +0.050 vy -0.032 wz +0.000 | aligning, offset +0.081, yaw +0.2 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw +0.0 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw +0.0 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw +0.2 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw +0.2 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw -0.1 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw -0.3 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw -0.6 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw -1.2 deg
+---
+align | vx +0.050 vy -0.100 wz +0.000 | aligning, offset +0.268, yaw -1.8 deg
+---
+align | vx +0.050 vy -0.100 wz +0.021 | aligning, offset +0.268, correcting yaw -2.1 deg
+---
+align | vx +0.050 vy -0.100 wz +0.025 | aligning, offset +0.268, correcting yaw -2.5 deg
+---
+align | vx +0.050 vy -0.100 wz +0.029 | aligning, offset +0.268, correcting yaw -2.9 deg
+---
+align | vx +0.050 vy -0.100 wz +0.034 | aligning, offset +0.268, correcting yaw -3.4 deg
+---
+align | vx +0.050 vy -0.100 wz +0.039 | aligning, offset +0.268, correcting yaw -3.9 deg
+---
+align | vx +0.050 vy -0.100 wz +0.045 | aligning, offset +0.268, correcting yaw -4.5 deg
+---
+align | vx +0.050 vy -0.100 wz +0.049 | aligning, offset +0.268, correcting yaw -4.9 deg
+---
+align | vx +0.050 vy -0.100 wz +0.054 | aligning, offset +0.268, correcting yaw -5.4 deg
+---
+align | vx +0.050 vy -0.100 wz +0.056 | aligning, offset +0.268, correcting yaw -5.6 deg
+---
+align | vx +0.050 vy -0.100 wz +0.058 | aligning, offset +0.268, correcting yaw -5.8 deg
+---
+align | vx +0.050 vy -0.100 wz +0.060 | aligning, offset +0.268, correcting yaw -6.0 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | plate lost at width 0.73, 0.00 m ago; entering 0.10 m from there
+---
+enter | vx +0.050 vy +0.000 wz +0.061 | entering blind 0.01/0.10 m, correcting yaw -6.1 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.058 | entering blind 0.01/0.10 m, correcting yaw -5.8 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.051 | entering blind 0.02/0.10 m, correcting yaw -5.1 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.041 | entering blind 0.02/0.10 m, correcting yaw -4.1 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.030 | entering blind 0.03/0.10 m, correcting yaw -3.0 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.03/0.10 m, yaw -1.8 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.04/0.10 m, yaw -0.6 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.04/0.10 m, yaw +0.2 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.04/0.10 m, yaw +0.7 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.04/0.10 m, yaw +1.1 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.05/0.10 m, yaw +1.4 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.05/0.10 m, yaw +1.6 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.07/0.10 m, yaw +1.7 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.07/0.10 m, yaw +1.8 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.07/0.10 m, yaw +1.9 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.07/0.10 m, yaw +2.0 deg
+---
+enter | vx +0.050 vy +0.000 wz -0.020 | entering blind 0.08/0.10 m, correcting yaw +2.0 deg
+---
+enter | vx +0.050 vy +0.000 wz -0.020 | entering blind 0.08/0.10 m, correcting yaw +2.0 deg
+---
+enter | vx +0.050 vy +0.000 wz -0.020 | entering blind 0.10/0.10 m, correcting yaw +2.0 deg
+---
+enter | vx +0.050 vy +0.000 wz +0.000 | entering blind 0.10/0.10 m, yaw +2.0 deg
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | in position after 0.10 m; drilling
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.1/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.2/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.3/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.4/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.5/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.6/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.7/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.8/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 0.9/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 1.0/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 1.1/20.0 s, lift rising to the upper limit
+---
+drill | vx +0.000 vy +0.000 wz +0.000 | drilling 1.2/20.0 s, lift rising to the upper limit
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---
+abort | vx +0.000 vy +0.000 wz +0.000 | turned -4.1 deg off the held heading, past 4 deg — with the wheels stopped and the hole occupied
+---

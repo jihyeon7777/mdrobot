@@ -283,7 +283,7 @@
     # sensor's signs have been verified by turning the machine (see
     # mdrobot_imu/README.md): a wrong sign does not wobble, it drives the error
     # the wrong way, under a car, with a drill.
-    auto_yaw_hold: false
+    auto_yaw_hold: true
     auto_yaw_timeout: 0.5
     # MEASURED 2026-09-03: driven 90 s and returned to marks on the floor, the
     # reported heading came back 1.75 deg off — the estimate drifts at roughly
@@ -331,6 +331,21 @@
     # Each stationary phase takes its OWN reference, so this is per-phase
     # rotation, not accumulated drift across the whole sequence.
     auto_yaw_stationary_abort_deg: 4.0
+    # How long a stationary phase is given to actually become stationary before
+    # that tight limit is enforced.
+    #
+    # The tick that ENTERS drill is the first one to command zero; the stop
+    # happens after it. So the yaw of coasting to a halt was being judged
+    # against a limit meant for a bit already buried in steel, and a real run
+    # aborted on -4.1 deg before the drill had done anything. The 0.42 deg that
+    # justified 4 deg was measured on a machine that was ALREADY stopped, with
+    # the motor bus misaddressed so the wheels were never commanded -- it never
+    # contained a deceleration.
+    #
+    # During this window the reference tracks the machine, so what the guard
+    # finally holds is the heading it settled at. Raise it if a run still
+    # aborts on the stop; the phase clocks are unaffected.
+    auto_yaw_settle_seconds: 1.5
 
     auto_hole_stage: false
     auto_hole_timeout: 0.5        # s without a hole reading before it counts as lost

@@ -244,6 +244,7 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_yaw_max_wz", 0.08)
         self.declare_parameter("auto_yaw_abort_deg", 15.0)
         self.declare_parameter("auto_yaw_stationary_abort_deg", 4.0)
+        self.declare_parameter("auto_yaw_settle_seconds", 1.5)
         self.declare_parameter("auto_hole_stage", False)
         self.declare_parameter("auto_hole_timeout", 0.5)
         self.declare_parameter("auto_hole_target_x", 0.0)
@@ -369,6 +370,8 @@ class SupervisorNode(Node):
             yaw_abort_deg=float(self.get_parameter("auto_yaw_abort_deg").value),
             yaw_stationary_abort_deg=float(
                 self.get_parameter("auto_yaw_stationary_abort_deg").value),
+            yaw_settle_seconds=float(
+                self.get_parameter("auto_yaw_settle_seconds").value),
             hole_stage=bool(self.get_parameter("auto_hole_stage").value),
             hole_timeout=float(self.get_parameter("auto_hole_timeout").value),
             hole_target_x=float(self.get_parameter("auto_hole_target_x").value),
@@ -917,9 +920,11 @@ class SupervisorNode(Node):
         self.pub_detail.publish(String(data=detail))
         if action.phase.value != self._last_phase:
             self.get_logger().info(f"autonomous: {detail}")
-        else:
+        elif action.phase not in TERMINAL:
             # Throttled, so an approach that takes a minute leaves a trail
-            # without burying the log.
+            # without burying the log. Terminal phases say it once: they never
+            # change again, and repeating it every second scrolls away the run
+            # that led there, which is the part worth reading.
             self.get_logger().info(f"autonomous: {detail}",
                                    throttle_duration_sec=1.0)
         self._publish_phase(action.phase.value)

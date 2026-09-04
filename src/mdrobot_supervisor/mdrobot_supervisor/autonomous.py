@@ -284,6 +284,23 @@ class AutonomousConfig:
     # Anything approaching this figure is therefore a genuine fault, and this
     # is the phase where carrying on breaks the bit.
     yaw_stationary_abort_deg: float = 4.0
+    # How long a stationary phase is given to actually become stationary before
+    # that tight limit is enforced.
+    #
+    # A stationary phase takes its reference the instant it BEGINS, and at that
+    # instant the machine is still rolling at entry_speed — the tick that
+    # enters DRILL is the first one to command zero, and the stop happens
+    # afterwards. So the yaw of coasting to a halt was being measured against a
+    # 4 deg limit meant for a bit already buried in steel, and a real run
+    # aborted on -4.1 deg before the drill had done anything.
+    #
+    # The 0.42 deg that justified 4 deg was measured on a machine that was
+    # ALREADY stopped, and with the motor bus misaddressed so the wheels were
+    # never commanded at all. It never contained a deceleration.
+    #
+    # During this window the reference tracks the machine instead, so what the
+    # guard finally holds is the heading it settled at.
+    yaw_settle_seconds: float = 1.5
 
     max_align_seconds: float = 60.0
     max_entry_seconds: float = 60.0
@@ -324,6 +341,7 @@ class AutonomousConfig:
                      "actuator_seconds", "spray_seconds", "retract_seconds",
                      "yaw_timeout", "yaw_deadband_deg", "yaw_gain",
                      "yaw_max_wz", "yaw_abort_deg", "yaw_stationary_abort_deg",
+                     "yaw_settle_seconds",
                      "max_align_seconds", "max_entry_seconds",
                      "max_find_hole_seconds", "max_hole_align_seconds"):
             if getattr(self, name) <= 0:
@@ -448,7 +466,7 @@ class AutonomousSequence:
         assert obs.yaw is not None  # _yaw_fresh guarantees it
         return wrap_deg(obs.yaw - self._yaw_ref)
 
-    def _yaw_guard(self, obs: Observation) -> str | None:
+    def _yaw_guard(self, obs: Observation, elapsed: float) -> str | None:
         """Reasons to stop rather than steer. None when all is well.
 
         Aborting on a heading that has simply gone missing looks harsh, but
@@ -473,6 +491,12 @@ class AutonomousSequence:
         # at all — measured, it does not. A much tighter limit therefore costs
         # nothing and catches the failure that is worth catching.
         stationary = self.phase in STATIONARY
+        if stationary and elapsed < cfg.yaw_settle_seconds:
+            # Still coming to a halt. Track the machine rather than judging it:
+            # what the guard ends up holding is the heading it settles at, not
+            # the one it was carrying while still rolling.
+            self._mark_yaw(obs)
+            return None
         limit = cfg.yaw_stationary_abort_deg if stationary else cfg.yaw_abort_deg
         if abs(error) > limit:
             why = (
@@ -527,7 +551,7 @@ class AutonomousSequence:
         # a reason to stop wherever the machine is, including with the bit in
         # the hole — carrying on is what breaks it.
         if self.phase not in TERMINAL:
-            why = self._yaw_guard(obs)
+            why = self._yaw_guard(obs, elapsed)
             if why is not None:
                 self.abort(why)
                 return Action(phase=self.phase, message=self._message)
