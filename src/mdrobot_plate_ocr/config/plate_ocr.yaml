@@ -13,12 +13,24 @@
 /**:
   ros__parameters:
     # --- camera ---------------------------------------------------------
-    device: /dev/video0
+    # A by-id path, NOT /dev/video0. Fitting the CSI camera pushed the USB
+    # webcam from video0 to video8: rp1-cfe registers eight nodes of its own at
+    # boot and takes the low numbers, so anything that had one loses it. Same
+    # lesson as the serial ports, and the same fix.
+    #   ls -l /dev/v4l/by-id/
+    device: /dev/v4l/by-id/usb-USB_USB_SN0001-video-index0
     width: 1920                     # px; 1080p, not 720p — a frame costs the
     height: 1080                    #   same 64 ms and this camera's 720p mode
                                     #   is a narrower crop that left the glyphs
                                     #   at ~20 px, under Tesseract's 30-40 range
-    fps: 30
+    # 30 -> 10. The resolution above earns its cost; this did not. Detection
+    # publishes at ~2 Hz and the machine approaches at 0.05 m/s, so frames
+    # arriving faster than that are decoded and thrown away — and on this Pi
+    # that mattered: the node was taking half a core while the desktop, the
+    # IDE and RViz took the rest, load sat at 4.7 on four cores, and BOTH
+    # serial links started losing bytes at once. Serial framing needs the
+    # reader scheduled on time; a saturated Pi is a corrupted bus.
+    fps: 10
     rotate: 0                       # deg clockwise; 0, 90, 180 or 270
     # Applied with v4l2-ctl, not OpenCV: CAP_PROP_AUTO_EXPOSURE silently no-ops
     # on this UVC driver. A control the camera lacks is a warning, not an error.
