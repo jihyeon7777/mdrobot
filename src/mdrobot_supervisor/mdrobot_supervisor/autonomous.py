@@ -171,6 +171,29 @@ class AutonomousConfig:
     # arrival and fire the drill wherever the machine happened to be. A plate
     # that vanishes while still narrow has not been reached, it has been lost.
     min_approach_width: float = 0.45
+    # A reading this much narrower than the widest one seen is not the plate.
+    #
+    # ~/plate_offset is published for any plate-SHAPED band, with no OCR to
+    # confirm it is a plate — finding the band is far more reliable than
+    # reading it, and a control loop does not need the number. The cost is that
+    # when the real plate is rejected, something else wins and the offset
+    # points at it. Measured by the detector across thirteen frames:
+    #
+    #     the plate         0.35 to 0.63
+    #     other candidates  0.10  0.14  0.15  0.16
+    #
+    # and the detector's own width_ratio_range tops out at 0.75. So closing on
+    # the plate eventually pushes it PAST that ceiling, the real plate drops
+    # out, and one of the 0.1-something candidates takes over — from somewhere
+    # else in the frame, which reads as the plate having jumped and steers the
+    # machine at it. The apparent width of a plate being approached only grows;
+    # a reading that collapses is a different object.
+    #
+    # Rejected readings count as no plate at all, not as a plate somewhere new.
+    # If the real plate has genuinely gone out of view because the machine is
+    # under the car, that is exactly right: the sequence goes to ENTER on the
+    # width it had reached, rather than steering at whatever replaced it.
+    plate_shrink_ratio: float = 0.5
     align_gain: float = 0.4  # strafe m/s per unit of normalised plate offset
     # Cap on the strafe, the way hole_max_speed caps the hole search. Without
     # one a plate at the edge of frame asks for align_gain m/s sideways, which
@@ -286,6 +309,12 @@ class AutonomousConfig:
                 f"yaw_deadband_deg {self.yaw_deadband_deg}, or the sequence "
                 f"aborts on headings it was told to ignore"
             )
+        if not 0.0 < self.plate_shrink_ratio < 1.0:
+            raise ValueError(
+                f"plate_shrink_ratio must be within (0, 1), got "
+                f"{self.plate_shrink_ratio}; 1 or more would reject the plate "
+                f"itself the moment it stopped growing"
+            )
         for name in ("plate_timeout", "min_approach_width", "align_gain",
                      "approach_speed",
                      "align_max_speed",
@@ -371,6 +400,7 @@ class AutonomousSequence:
         # moving the point the machine stops at.
         self._last_seen_at = 0.0
         self._widest = 0.0
+        self._plate_shrank = False
         self._top_seen = False
         self._lift_stopped_by = ""
         # The heading being held, in the sensor's own degrees. Taken afresh at
@@ -484,6 +514,13 @@ class AutonomousSequence:
 
         have_plate = obs.plate_age is not None and obs.plate_offset_x is not None
         plate_fresh = have_plate and obs.plate_age <= cfg.plate_timeout
+        # A candidate far narrower than the widest seen is a different object,
+        # not the plate having moved. See plate_shrink_ratio.
+        self._plate_shrank = False
+        if (plate_fresh and obs.plate_width is not None and self._widest > 0.0
+                and obs.plate_width < cfg.plate_shrink_ratio * self._widest):
+            plate_fresh = False
+            self._plate_shrank = True
         elapsed = obs.now - self._phase_started
 
         # Before any phase acts. A heading that has run away or gone missing is
@@ -514,6 +551,8 @@ class AutonomousSequence:
                         f"plate lost at width {self._widest:.2f} < "
                         f"{cfg.min_approach_width:.2f}; too far to be under the "
                         f"car, waiting for it to come back"
+                        + (" (a narrower candidate is being ignored)"
+                           if self._plate_shrank else "")
                     )
                     # Keep closing straight ahead. There is no offset to steer
                     # on, so do not strafe on a stale one — but DO hold the

@@ -398,3 +398,51 @@ def test_the_heading_is_held_even_while_the_detector_is_blind():
     assert seq.phase is Phase.ALIGN  # too narrow to count as an arrival
     assert action.vy == 0.0          # no offset to steer on
     assert action.wz == pytest.approx(-0.05)   # but the heading is still held
+
+
+# --- a candidate that is not the plate --------------------------------------
+
+def test_a_reading_that_collapses_in_width_is_not_steered_at():
+    # ~/plate_offset comes from a plate-SHAPED band with no OCR behind it, so
+    # when the real plate is rejected another candidate wins and the offset
+    # points at that. Measured: the plate runs 0.35-0.63, the competition
+    # 0.10-0.16. A plate being approached only grows.
+    cfg = config(plate_shrink_ratio=0.5, align_gain=0.4, align_max_speed=0.4)
+    seq = AutonomousSequence(cfg)
+    seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.60))
+    steered = seq.step(obs(0.5, plate_offset_x=0.1, plate_age=0.0, plate_width=0.60))
+    assert steered.vy != 0.0
+    # 0.15 against a widest of 0.60: a different object, sitting well off to
+    # one side. Steering at it is the veer this exists to stop.
+    ignored = seq.step(obs(1.0, plate_offset_x=-0.9, plate_age=0.0, plate_width=0.15))
+    assert ignored.vy == 0.0
+    assert seq.phase is Phase.ALIGN
+
+
+def test_the_collapse_counts_as_no_plate_not_as_a_plate_somewhere_new():
+    # If the real plate has gone out of view because the machine is under the
+    # car, entering on the width it reached is exactly right.
+    cfg = config(plate_shrink_ratio=0.5, min_approach_width=0.45,
+                 plate_timeout=0.5)
+    seq = AutonomousSequence(cfg)
+    seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.60))
+    seq.step(obs(0.5, plate_offset_x=0.0, plate_age=0.0, plate_width=0.60))
+    seq.step(obs(1.0, plate_offset_x=-0.9, plate_age=0.0, plate_width=0.12))
+    assert seq.phase is Phase.ENTER
+    assert "plate lost at width 0.60" in seq._message
+
+
+def test_a_narrow_reading_before_any_wide_one_is_still_used():
+    # The gate is relative to the widest seen. With nothing seen yet there is
+    # nothing to be narrower than, and the approach has to be able to start.
+    cfg = config(plate_shrink_ratio=0.5, align_gain=0.4, align_max_speed=0.4)
+    seq = AutonomousSequence(cfg)
+    seq.step(obs(0.0, plate_offset_x=0.0, plate_age=0.0, plate_width=0.10))
+    action = seq.step(obs(0.5, plate_offset_x=0.5, plate_age=0.0, plate_width=0.10))
+    assert action.vy != 0.0
+
+
+def test_a_shrink_ratio_of_one_or_more_is_rejected():
+    # At 1.0 the plate is rejected the moment it stops growing.
+    with pytest.raises(ValueError, match="plate_shrink_ratio"):
+        AutonomousConfig(plate_shrink_ratio=1.0)

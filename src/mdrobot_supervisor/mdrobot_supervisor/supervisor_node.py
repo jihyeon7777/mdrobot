@@ -216,6 +216,8 @@ class SupervisorNode(Node):
         self.declare_parameter("counts_per_rev", 0.0)
         self.declare_parameter("wheel_position_units", "unset")
         self.declare_parameter("auto_plate_timeout", 0.5)
+        self.declare_parameter("auto_min_approach_width", 0.45)
+        self.declare_parameter("auto_plate_shrink_ratio", 0.5)
         self.declare_parameter("auto_align_gain", 0.4)
         self.declare_parameter("auto_align_max_speed", 0.10)
         self.declare_parameter("auto_align_tolerance", 0.08)
@@ -336,6 +338,10 @@ class SupervisorNode(Node):
             )
         self.auto_config = AutonomousConfig(
             plate_timeout=float(self.get_parameter("auto_plate_timeout").value),
+            min_approach_width=float(
+                self.get_parameter("auto_min_approach_width").value),
+            plate_shrink_ratio=float(
+                self.get_parameter("auto_plate_shrink_ratio").value),
             align_gain=float(self.get_parameter("auto_align_gain").value),
             align_max_speed=float(
                 self.get_parameter("auto_align_max_speed").value),
