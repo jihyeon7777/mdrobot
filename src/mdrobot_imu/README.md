@@ -94,10 +94,26 @@ manual. Only by moving the machine.
 
 ### 2. Put the sensor in 6-axis mode
 
+**Done on this machine, 2026-09-05** — `ros2 run mdrobot_imu imu_configure
+--axis 6`, verified by reading the register back. What it cost to find out is
+worth recording:
+
 In 9-axis it fuses the magnetometer, and this robot's job is to park inside a
 steel box, beside its own BLDC motors, with a drill running. The fitted unit
 already reads a badly skewed field standing still — `mx +1399, my +1844,
 mz -5012` (2026-09-03) — and that is *before* the car.
+
+An autonomous run aborted on a runaway: the heading swung -8 deg, +7, -15,
+each swing bigger, with the correction saturated. It read as an unstable
+control loop and it was not one. Driving forward for six seconds moved the
+reported heading 57 deg while the GYRO integrated 0.81 deg over the whole
+run — and when the motors stopped the heading crept back, which a rotation
+does not do. The machine had barely turned. The heading hold was faithfully
+chasing a magnetic field, and the wz it commanded to correct it was the only
+thing actually turning the robot.
+
+    9-axis, driving:  gyro integral +0.81 deg,  reported yaw -57.66 deg
+    6-axis, at rest:  gyro integral  0.00 deg,  reported yaw   0.00 deg
 
 6-axis yaw is gyro-integrated, so it drifts. That is the right trade here: the
 sequence only needs a reference held for tens of seconds, and 6-axis also

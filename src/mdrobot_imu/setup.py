@@ -33,6 +33,7 @@ setup(
             "imu_node = mdrobot_imu.imu_node:main",
             "imu_survey = mdrobot_imu.survey:main",
             "imu_check = mdrobot_imu.check:main",
+            "imu_configure = mdrobot_imu.configure:main",
         ],
     },
 )
