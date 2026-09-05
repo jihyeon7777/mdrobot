@@ -18,7 +18,10 @@ from mdrobot_supervisor.autonomous import (
     wrap_deg,
 )
 
-DRIFT_MEASURED_DEG = 1.75
+# Measured in 6-axis, 2026-09-05: 0.12 deg over a 20 s drive, with the gyro
+# integral agreeing to 0.10. The 1.75 deg this replaced was a 9-axis figure,
+# and that turned out to be the magnetometer reading the machine's own motors.
+DRIFT_MEASURED_DEG = 0.12
 
 
 def config(**overrides) -> AutonomousConfig:
@@ -105,13 +108,25 @@ def test_with_yaw_hold_off_a_missing_heading_is_not_a_fault():
 # --- the correction ---------------------------------------------------------
 
 def test_drift_sized_error_is_ignored():
-    # The measured 90 s closure error. Correcting this would rotate the machine
-    # to match the sensor's own error.
+    # Correcting the sensor's own drift would rotate the machine to match an
+    # error that is not there. The band has to clear it.
     seq = AutonomousSequence(config())
     t = drive_to_enter(seq, yaw=10.0)
     action = seq.step(obs(t + 1.0, yaw=10.0 + DRIFT_MEASURED_DEG, distance=0.1))
     assert action.wz == 0.0
-    assert "yaw +1.8 deg" in action.message
+    assert AutonomousConfig().yaw_deadband_deg > DRIFT_MEASURED_DEG
+
+
+def test_a_swing_the_old_band_would_have_swallowed_is_corrected():
+    # A real run turned from -1.6 to +1.6 deg with the strafe still running and
+    # nothing corrected it: the whole swing fitted inside the 2 deg band that
+    # 9-axis noise had justified. By the time it was outside, the rotation had
+    # rate behind it, and ALIGN handed ENTER +5.7 deg to undo.
+    seq = AutonomousSequence(config(yaw_gain=0.01, yaw_max_wz=1.0))
+    t = drive_to_enter(seq, yaw=0.0)
+    action = seq.step(obs(t + 1.0, yaw=1.6, distance=0.1))
+    assert action.wz != 0.0
+    assert "correcting yaw +1.6 deg" in action.message
 
 
 def test_an_anticlockwise_error_is_corrected_clockwise():

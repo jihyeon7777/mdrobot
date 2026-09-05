@@ -239,7 +239,7 @@ class SupervisorNode(Node):
         # guarding is worse than one that was never asked for.
         self.declare_parameter("auto_yaw_hold", False)
         self.declare_parameter("auto_yaw_timeout", 0.5)
-        self.declare_parameter("auto_yaw_deadband_deg", 2.0)
+        self.declare_parameter("auto_yaw_deadband_deg", 0.5)
         self.declare_parameter("auto_yaw_gain", 0.01)
         self.declare_parameter("auto_yaw_max_wz", 0.08)
         self.declare_parameter("auto_yaw_abort_deg", 15.0)

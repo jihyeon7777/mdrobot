@@ -263,7 +263,7 @@ class AutonomousConfig:
     # Do nothing inside this. The measured 90 s closure error is 1.75 deg, so a
     # deadband much below 2 spends its time chasing the sensor's own drift —
     # rotating the machine to match an error that is not there.
-    yaw_deadband_deg: float = 2.0
+    yaw_deadband_deg: float = 0.5
     yaw_gain: float = 0.01  # rad/s of wz per degree of heading error
     # About a fifth of what a full stick deflection asks for (max_angular_z is
     # 0.37 rad/s). This runs under a car; it corrects, it does not manoeuvre.

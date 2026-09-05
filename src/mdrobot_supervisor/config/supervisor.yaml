@@ -310,7 +310,23 @@
     # the signal is bigger than the drift — but only just, which is why the
     # reference is re-taken at the start of the hole search rather than carried
     # from the entry.
-    auto_yaw_deadband_deg: 2.0
+    # 2.0 -> 0.5. The 2.0 came from a 9-axis drift figure of 1.75 deg per 90 s,
+    # and that measurement was the magnetometer reading the machine's own
+    # motors. In 6-axis, measured 2026-09-05: 0.00 deg over 20 s at rest, and
+    # 0.12 deg over a 20 s drive with the gyro integral agreeing to 0.10. An
+    # order of magnitude quieter, so the old band was protecting against noise
+    # that is no longer there.
+    #
+    # What it cost: a run handed ENTER +5.7 deg because the machine turned from
+    # -1.6 to +1.6 with the strafe still running and nothing corrected it --
+    # the whole swing fitted inside the band. By the time it was outside, the
+    # rotation had rate behind it. ENTER then took 30 cm to undo an error ALIGN
+    # need not have made; it converged to -0.3, so the loop was never the
+    # problem.
+    #
+    # 0.5 is four times the measured 20 s drift. Lower is only worth trying if
+    # a run shows it hunting.
+    auto_yaw_deadband_deg: 0.5
     auto_yaw_gain: 0.01          # rad/s of wz per degree of heading error
     # About a fifth of max_angular_z (0.37). This runs under a car: it
     # corrects, it does not manoeuvre.
