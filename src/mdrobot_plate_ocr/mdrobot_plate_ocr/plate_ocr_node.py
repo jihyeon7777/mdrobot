@@ -479,7 +479,7 @@ class PlateOcrNode(Node):
                 "centre_px": [round(v, 1) for v in offset.centre_px],
             }
         if result.skew is not None:
-            skew, left, right = result.skew
+            skew, left, right, tilt = result.skew
             # Signed foreshortening of the band: + means the LEFT end is taller,
             # so the left side of the plate is nearer. Reported only; nothing
             # steers on it until it has been shown to track a deliberate turn.
@@ -487,6 +487,11 @@ class PlateOcrNode(Node):
                 "value": round(skew, 4),
                 "left_px": round(left, 1),
                 "right_px": round(right, 1),
+                # The band's angle in the image. A camera rolled about its
+                # optical axis puts a fixed offset into "value" that no amount
+                # of turning the machine can null out, so this is what says
+                # whether the skew is the robot's angle or the mounting's.
+                "tilt_deg": round(tilt, 2),
             }
         if best is not None:
             detail.update(

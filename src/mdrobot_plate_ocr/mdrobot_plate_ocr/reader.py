@@ -262,7 +262,7 @@ class ReadResult:
     region: Region | None = None  # where that offset was measured
     # (skew, left_height_px, right_height_px) -- see band_skew. None when there
     # was not enough ink at one end of the band to compare with the other.
-    skew: tuple[float, float, float] | None = None
+    skew: tuple[float, float, float, float] | None = None
 
     @property
     def accepted(self) -> Attempt | None:
@@ -341,11 +341,20 @@ def estimate_glyph_height(gray: np.ndarray) -> float:
 
 def band_skew(
     gray: np.ndarray, region: Region, settings: ReadSettings
-) -> tuple[float, float, float] | None:
-    """How much taller the band is at one end than the other.
+) -> tuple[float, float, float, float] | None:
+    """How much taller the band is at one end than the other, and how tilted.
 
-    Returns ``(skew, left_height, right_height)`` in pixels, or None when there
-    is not enough ink to measure. ``skew`` is ``(left - right) / (left +
+    Returns ``(skew, left_height, right_height, tilt_deg)``, or None when there
+    is not enough ink to measure.
+
+    ``tilt_deg`` is the angle of the band's centre line across the frame, and
+    it is here because it is the thing that can make ``skew`` a lie. A camera
+    rolled about its optical axis turns a square-on plate into a tilted one in
+    the image, and the two ends of a tilted band no longer sample the same part
+    of it — so a fixed mounting error reads as a fixed skew, and a controller
+    steering on it would turn the machine forever chasing a number that cannot
+    reach zero. Level the camera, or measure the tilt and subtract what it
+    accounts for; either way, know it before trusting the skew. ``skew`` is ``(left - right) / (left +
     right)``: signed, scale-free, and zero when the two ends match.
 
     A flat rectangle seen square-on projects to a rectangle. Seen from off to
@@ -385,7 +394,20 @@ def band_skew(
     total = lh + rh
     if total <= 0:
         return None
-    return (lh - rh) / total, lh, rh
+
+    # The ink's vertical centre, column by column. Its slope across the band is
+    # the tilt: fitted over every column that has ink rather than over the two
+    # ends, so a gap in the middle of the plate does not lever the answer.
+    columns = np.nonzero(heights > 0)[0]
+    tilt_deg = 0.0
+    if len(columns) >= 20:
+        rows = np.arange(mask.shape[0])[:, None]
+        centres = (mask[:, columns] > 0) * rows
+        counts = (mask[:, columns] > 0).sum(axis=0)
+        centres = centres.sum(axis=0) / counts
+        slope = float(np.polyfit(columns.astype(float), centres, 1)[0])
+        tilt_deg = float(np.degrees(np.arctan(slope)))
+    return (lh - rh) / total, lh, rh, tilt_deg
 
 
 def find_regions(gray: np.ndarray, settings: ReadSettings) -> list[Region]:

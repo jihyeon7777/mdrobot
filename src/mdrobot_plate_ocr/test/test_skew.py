@@ -44,13 +44,13 @@ def test_a_square_band_reads_as_no_skew():
 
 def test_a_taller_left_end_reads_positive():
     # Positive means the LEFT end is taller, so the left side is nearer.
-    skew, left, right = band_skew(strokes(150, 60), (0, 0, 600, 200), SETTINGS)
+    skew, left, right, _ = band_skew(strokes(150, 60), (0, 0, 600, 200), SETTINGS)
     assert skew > 0.1
     assert left > right
 
 
 def test_a_taller_right_end_reads_negative():
-    skew, left, right = band_skew(strokes(60, 150), (0, 0, 600, 200), SETTINGS)
+    skew, left, right, _ = band_skew(strokes(60, 150), (0, 0, 600, 200), SETTINGS)
     assert skew < -0.1
     assert right > left
 
@@ -86,3 +86,46 @@ def test_a_region_off_the_edge_of_the_frame_gives_nothing():
 
 def test_a_region_too_narrow_to_have_two_ends_gives_nothing():
     assert band_skew(strokes(120, 120), (0, 0, 4, 200), SETTINGS) is None
+
+
+# --- tilt: the thing that can make skew a lie -------------------------------
+
+def sloped(rise: int, width: int = 600, height: int = 240) -> np.ndarray:
+    """Bars of equal height whose centres climb across the band.
+
+    A camera rolled about its optical axis does this to a square-on plate. The
+    heights do not change, so a correct skew stays near zero while the tilt
+    picks it up.
+    """
+    image = np.full((height, width), 220, dtype=np.uint8)
+    n = (width - 40) // 40 - 1
+    for i, x in enumerate(range(20, width - 20, 40)):
+        centre = height // 2 + int(round(rise * (i / max(1, n) - 0.5)))
+        image[centre - 40:centre + 40, x:x + 12] = 30
+    return image
+
+
+def test_a_level_band_reads_no_tilt():
+    assert band_skew(sloped(0), (0, 0, 600, 240), SETTINGS)[3] == pytest.approx(
+        0.0, abs=0.5)
+
+
+def test_a_band_climbing_to_the_right_reads_positive_tilt():
+    # Image rows increase downward, so a band whose centres climb in row number
+    # is going DOWN to the right; the sign is fixed by that, not by taste.
+    tilt = band_skew(sloped(60), (0, 0, 600, 240), SETTINGS)[3]
+    assert tilt > 2.0
+
+
+def test_the_tilt_sign_follows_the_geometry():
+    up = band_skew(sloped(60), (0, 0, 600, 240), SETTINGS)[3]
+    down = band_skew(sloped(-60), (0, 0, 600, 240), SETTINGS)[3]
+    assert up == pytest.approx(-down, abs=1.0)
+
+
+def test_tilt_alone_does_not_move_the_skew():
+    # The whole point: rolling the camera must not read as the machine being
+    # turned. Equal heights, only the centres move.
+    level = band_skew(sloped(0), (0, 0, 600, 240), SETTINGS)[0]
+    tilted = band_skew(sloped(60), (0, 0, 600, 240), SETTINGS)[0]
+    assert tilted == pytest.approx(level, abs=0.10)

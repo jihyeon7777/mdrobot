@@ -56,3 +56,7 @@ htmlcov/
 # src/mdrobot_description/meshes/; these are the originals they came from
 # (19 MB, a million triangles) and are regenerated from CAD, not from here.
 /STL/
+
+# Autonomous run recordings. Kept out of git: they are evidence for a
+# decision, and the numbers that matter end up in a comment or a README.
+/runs/*.jsonl
