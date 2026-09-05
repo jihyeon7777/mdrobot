@@ -219,7 +219,7 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_min_approach_width", 0.45)
         self.declare_parameter("auto_plate_shrink_ratio", 0.5)
         self.declare_parameter("auto_align_gain", 0.4)
-        self.declare_parameter("auto_align_max_speed", 0.10)
+        self.declare_parameter("auto_align_max_speed", 0.06)
         self.declare_parameter("auto_align_tolerance", 0.08)
         self.declare_parameter("auto_approach_speed", 0.05)
         self.declare_parameter("auto_entry_distance", 0.3)

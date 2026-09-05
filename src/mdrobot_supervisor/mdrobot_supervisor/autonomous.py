@@ -200,7 +200,7 @@ class AutonomousConfig:
     # is where mecanum rollers give up first and the phase that most needs the
     # heading held is the one sliding hardest. Capping rather than lowering the
     # gain keeps a small offset closing briskly and only slows the big ones.
-    align_max_speed: float = 0.10
+    align_max_speed: float = 0.06
     align_tolerance: float = 0.08  # |offset.x| this small counts as centred
     # The detector, not the wheels, sets how fast this can usefully go:
     # measured at 0.43 Hz with gaps up to 5.5 s, so at 0.08 m/s the machine

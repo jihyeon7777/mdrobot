@@ -210,7 +210,17 @@
     # the hole search, in the direction mecanum rollers give up in first. The
     # cap keeps a small offset closing briskly and only slows the big ones,
     # which is what lowering the gain instead would not do.
-    auto_align_max_speed: 0.10
+    # 0.10 -> 0.06. MEASURED on the machine 2026-09-05, with the IMU finally
+    # in 6-axis so the heading could be believed: strafing is what puts the
+    # yaw error there.
+    #     |vy| > 0.05   ->  |yaw| median 6.7 deg
+    #     |vy| < 0.01   ->  |yaw| median 1.4 deg
+    # Five times the error, from the strafe alone. Slowing it attacks the
+    # cause rather than the symptom, and slowing a machine down cannot
+    # destabilise it -- where raising the correction's authority, which is the
+    # other lever, can. Alignment took 12.9 s in that run and should take
+    # around 20 now, against auto_max_align_seconds of 60.
+    auto_align_max_speed: 0.06
     auto_align_tolerance: 0.08   # |offset.x| this small counts as centred
     # 0.08 -> 0.05. The DETECTOR sets the useful speed here, not the wheels:
     # measured at 0.43 Hz with gaps up to 5.5 s, so at 0.08 m/s the machine
