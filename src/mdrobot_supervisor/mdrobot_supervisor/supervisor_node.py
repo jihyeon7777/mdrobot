@@ -220,6 +220,7 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_plate_shrink_ratio", 0.5)
         self.declare_parameter("auto_align_gain", 0.4)
         self.declare_parameter("auto_align_max_speed", 0.06)
+        self.declare_parameter("auto_align_offset_max_age", 0.6)
         self.declare_parameter("auto_align_tolerance", 0.08)
         self.declare_parameter("auto_approach_speed", 0.05)
         self.declare_parameter("auto_entry_distance", 0.3)
@@ -346,6 +347,8 @@ class SupervisorNode(Node):
             align_gain=float(self.get_parameter("auto_align_gain").value),
             align_max_speed=float(
                 self.get_parameter("auto_align_max_speed").value),
+            align_offset_max_age=float(
+                self.get_parameter("auto_align_offset_max_age").value),
             align_tolerance=float(self.get_parameter("auto_align_tolerance").value),
             approach_speed=float(self.get_parameter("auto_approach_speed").value),
             entry_distance=float(self.get_parameter("auto_entry_distance").value),

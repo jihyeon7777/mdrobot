@@ -221,6 +221,21 @@
     # other lever, can. Alignment took 12.9 s in that run and should take
     # around 20 now, against auto_max_align_seconds of 60.
     auto_align_max_speed: 0.06
+    # How old a reading may be and still be STRAFED on. Distinct from
+    # auto_plate_timeout, which decides whether the plate is GONE -- a
+    # deliberately generous 2.0 s so a dropout is not read as an arrival.
+    #
+    # run_20260905_193604: detection ran at 1.9 Hz and stopped for good at
+    # t=20.2 s with offset -0.125. ALIGN went on commanding vy +0.050 for the
+    # remaining two seconds of the timeout -- 10 cm sideways, chasing an
+    # offset it had already closed -- and finished beside the plate rather
+    # than under it, with the yaw that strafe built handed to ENTER.
+    #
+    # 0.6 s clears one detector period (0.50 s median gap) so the strafe does
+    # not chop on and off at the detector's own rate, and cuts the blind
+    # travel from 10 cm to 3. Raise it if detection slows; it must stay well
+    # under auto_plate_timeout or it becomes dead code.
+    auto_align_offset_max_age: 0.6
     auto_align_tolerance: 0.08   # |offset.x| this small counts as centred
     # 0.08 -> 0.05. The DETECTOR sets the useful speed here, not the wheels:
     # measured at 0.43 Hz with gaps up to 5.5 s, so at 0.08 m/s the machine

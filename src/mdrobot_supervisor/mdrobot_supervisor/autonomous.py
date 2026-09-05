@@ -201,6 +201,25 @@ class AutonomousConfig:
     # heading held is the one sliding hardest. Capping rather than lowering the
     # gain keeps a small offset closing briskly and only slows the big ones.
     align_max_speed: float = 0.06
+    # How old a plate reading may be and still be STEERED on. Separate from
+    # plate_timeout, which answers a different question on a different
+    # timescale:
+    #
+    #   "has the plate gone?"        plate_timeout, deliberately generous, so
+    #                                a dropout is not mistaken for an arrival
+    #   "may I strafe on this?"      this, about one detector period
+    #
+    # Measured 2026-09-05: detection ran at 1.9 Hz and then stopped for good
+    # two seconds before the timeout expired. ALIGN went on strafing at
+    # align_max_speed on that last reading for the whole two seconds -- 10 cm
+    # sideways, long after the offset it was chasing had been closed. The
+    # machine ended up beside the plate rather than on it, and the strafe put
+    # the yaw into the handover as well.
+    #
+    # A lateral offset two seconds old describes where the plate was, not
+    # where it is. Forward motion is safe to continue on -- it closes on the
+    # car either way -- so only the strafe is gated.
+    align_offset_max_age: float = 0.6
     align_tolerance: float = 0.08  # |offset.x| this small counts as centred
     # The detector, not the wheels, sets how fast this can usefully go:
     # measured at 0.43 Hz with gaps up to 5.5 s, so at 0.08 m/s the machine
@@ -334,7 +353,7 @@ class AutonomousConfig:
             )
         for name in ("plate_timeout", "min_approach_width", "align_gain",
                      "approach_speed",
-                     "align_max_speed",
+                     "align_max_speed", "align_offset_max_age",
                      "entry_distance", "entry_speed", "drill_seconds",
                      "lift_up_seconds", "lift_down_seconds",
                      "hole_timeout", "hole_max_speed",
@@ -608,6 +627,13 @@ class AutonomousSequence:
             # so the machine has to strafe right: negate.
             vy = 0.0 if abs(offset) <= cfg.align_tolerance else -cfg.align_gain * offset
             vy = max(-cfg.align_max_speed, min(cfg.align_max_speed, vy))
+            # Steer on it only while it is recent. Between sightings the
+            # machine is still moving, so a reading a detector-period old
+            # describes where the plate WAS. Keep closing forwards regardless:
+            # that is true whatever the lateral offset does.
+            stale = obs.plate_age is not None and obs.plate_age > cfg.align_offset_max_age
+            if stale:
+                vy = 0.0
             # This is the phase that needs the heading held most. It strafes at
             # up to align_gain m/s — eight times the hole search — and sideways
             # is where mecanum rollers give up first. A machine that yaws while
@@ -615,7 +641,8 @@ class AutonomousSequence:
             # because the body did, and it enters the car crooked.
             wz, note = self._hold_yaw(obs)
             centred = "centred" if abs(offset) <= cfg.align_tolerance else "aligning"
-            self._message = f"{centred}, offset {offset:+.3f}{note}"
+            age = "" if not stale else f", offset {obs.plate_age:.1f}s old — not strafing"
+            self._message = f"{centred}, offset {offset:+.3f}{age}{note}"
             return Action(vx=cfg.approach_speed, vy=vy, wz=wz, phase=self.phase,
                           message=self._message)
 
