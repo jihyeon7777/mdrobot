@@ -223,7 +223,7 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_align_offset_max_age", 0.6)
         self.declare_parameter("auto_align_tolerance", 0.08)
         self.declare_parameter("auto_approach_speed", 0.05)
-        self.declare_parameter("auto_entry_distance", 0.3)
+        self.declare_parameter("auto_entry_distance", 1.4)
         self.declare_parameter("auto_entry_speed", 0.05)
         self.declare_parameter("auto_drill_seconds", 20.0)
         self.declare_parameter("auto_lift_up_seconds", 10.0)

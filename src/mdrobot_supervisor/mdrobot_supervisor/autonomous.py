@@ -225,7 +225,7 @@ class AutonomousConfig:
     # measured at 0.43 Hz with gaps up to 5.5 s, so at 0.08 m/s the machine
     # covers 44 cm between sightings, open-loop. At 0.05 that is 28 cm.
     approach_speed: float = 0.05  # m/s forward while aligning
-    entry_distance: float = 1.2  # m to travel blind after losing the plate
+    entry_distance: float = 1.4  # m to travel blind after losing the plate
     entry_speed: float = 0.05  # m/s forward while entering
     # The working sequence, once the machine is under the car. The lift and the
     # drill start together: the drill spins while the lift pushes it up into the
