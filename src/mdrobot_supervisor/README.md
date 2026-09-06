@@ -70,7 +70,7 @@ the vehicle by hand and flips the switch; from there
 | `wait_plate` | holds still | the camera has a plate |
 | `align` | creeps forward, strafes onto the plate | the plate drops out of view |
 | `enter` | drives **blind** under the car | `auto_entry_distance` on the encoders |
-| `drill` | stops, runs the drill | `auto_drill_seconds` elapse |
+| `drill` | stops; the lift pushes the turning bit up into the underbody | the upper limit switch closes (backstop `auto_lift_up_seconds`) |
 | `find_hole` | waits for the upward camera to pick out the hole | a hole reading arrives |
 | `align_hole` | shuffles in both axes to put the hole over the actuator | both axes within `auto_hole_tolerance` |
 | `raise` | drives the actuator up into the hole | `auto_actuator_seconds` elapse |

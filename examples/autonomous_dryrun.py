@@ -167,7 +167,6 @@ def write_params(args) -> str:
     auto_entry_distance: {args.entry_distance}
     auto_entry_speed: 0.15
     auto_approach_speed: 0.15
-    auto_drill_seconds: {args.drill_seconds}
     auto_lift_down_seconds: {args.stage_seconds}
     auto_actuator_seconds: {args.stage_seconds}
     auto_spray_seconds: {args.stage_seconds}
@@ -193,7 +192,6 @@ def main() -> int:
                     help="metres travelled at which the plate goes out of view")
     ap.add_argument("--roller-layout", default="o", choices=["x", "o", "unknown"],
                     help="must match the machine's; 'o' was settled on the floor")
-    ap.add_argument("--drill-seconds", type=float, default=1.0)
     ap.add_argument("--stage-seconds", type=float, default=1.0,
                     help="stands in for the lift-down, actuator and spray times, "
                          "which are 20/7/30 s on the machine")

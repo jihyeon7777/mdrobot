@@ -273,9 +273,14 @@
     # The working sequence once the machine is under the car. The lift and the
     # drill start together — the bit spins while the lift pushes it up into the
     # underbody — then the lift comes back down, the actuator goes up into the
-    # hole, the valve opens, and everything retracts. All timed: the limit
-    # switches that should end the lift strokes are not fitted yet.
-    auto_drill_seconds: 20.0       # the bit turns this long, all told
+    # hole, the valve opens, and everything retracts.
+    #
+    # The bit no longer runs on a clock. auto_drill_seconds (20 s) was removed
+    # on 2026-09-06: the upper limit switch closes around 53 s, so the bit
+    # stopped a third of the way from the top and the lift spent the rest of
+    # the stroke pressing a stationary bit into the underbody. The switch ends
+    # both together now, which is the only signal that knows the hole is
+    # through.
     auto_lift_up_seconds: 70.0    # NOT the stroke length -- the upper limit
                                   # switch ends it, same as the lower one. This
                                   # is the fault timeout: a full stroke measured

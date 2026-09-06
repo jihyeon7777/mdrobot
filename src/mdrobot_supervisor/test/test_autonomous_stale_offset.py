@@ -33,7 +33,6 @@ def config(**overrides) -> AutonomousConfig:
         entry_distance=1.0,
         entry_speed=0.08,
         min_approach_width=0.45,
-        drill_seconds=2.0,
         lift_up_seconds=1.0,
         lift_down_seconds=1.0,
         plate_timeout=2.0,

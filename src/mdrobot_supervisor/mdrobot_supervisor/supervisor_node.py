@@ -225,7 +225,6 @@ class SupervisorNode(Node):
         self.declare_parameter("auto_approach_speed", 0.05)
         self.declare_parameter("auto_entry_distance", 1.4)
         self.declare_parameter("auto_entry_speed", 0.05)
-        self.declare_parameter("auto_drill_seconds", 20.0)
         self.declare_parameter("auto_lift_up_seconds", 10.0)
         self.declare_parameter("auto_lift_down_seconds", 10.0)
         self.declare_parameter("auto_retract_seconds", 12.0)
@@ -353,7 +352,6 @@ class SupervisorNode(Node):
             approach_speed=float(self.get_parameter("auto_approach_speed").value),
             entry_distance=float(self.get_parameter("auto_entry_distance").value),
             entry_speed=float(self.get_parameter("auto_entry_speed").value),
-            drill_seconds=float(self.get_parameter("auto_drill_seconds").value),
             lift_up_seconds=float(self.get_parameter("auto_lift_up_seconds").value),
             lift_down_seconds=float(self.get_parameter("auto_lift_down_seconds").value),
             retract_seconds=float(self.get_parameter("auto_retract_seconds").value),

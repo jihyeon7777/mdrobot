@@ -30,7 +30,6 @@ def config(**overrides) -> AutonomousConfig:
         entry_distance=1.0,
         entry_speed=0.08,
         min_approach_width=0.45,
-        drill_seconds=2.0,
         lift_up_seconds=1.0,
         lift_down_seconds=1.0,
         hole_stage=True,
@@ -77,9 +76,11 @@ def drive_to_find_hole(seq, cfg, *, yaw=0.0, drifted_to=None):
     t = drive_to_enter(seq, yaw=yaw)
     seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=yaw))
     assert seq.phase is Phase.DRILL
-    seq.step(obs(t + 2.0, at_top=True, yaw=yaw))
-    t += 2.0 + cfg.drill_seconds
-    seq.step(obs(t, at_top=True, yaw=later))
+    # Inside lift_up_seconds, so the fault backstop is not what ends the phase.
+    seq.step(obs(t + 1.5, yaw=later))       # drilling; the heading drifts
+    assert seq.phase is Phase.DRILL
+    t += 1.8
+    seq.step(obs(t, at_top=True, yaw=later))  # the switch ends bit and lift
     assert seq.phase is Phase.LIFT_DOWN
     seq.step(obs(t + 0.1, at_bottom=True, yaw=later))
     assert seq.phase is Phase.FIND_HOLE
@@ -199,16 +200,16 @@ def test_every_stationary_phase_takes_its_own_reference():
     seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))
     assert seq.phase is Phase.DRILL and seq._yaw_ref == pytest.approx(0.0)
     # 3 deg of drift through the drill: inside the limit, not a fault.
-    seq.step(obs(t + 1.5, at_top=True, yaw=3.0))
+    seq.step(obs(t + 1.5, yaw=3.0))
     assert seq.phase is Phase.DRILL
-    seq.step(obs(t + 1.0 + cfg.drill_seconds, at_top=True, yaw=3.0))
+    seq.step(obs(t + 2.0, at_top=True, yaw=3.0))
     assert seq.phase is Phase.LIFT_DOWN
     # Lift down starts afresh from 3, so another 3 is still not a fault -- where
     # 6 measured from the drill's reference would have been.
     assert seq._yaw_ref == pytest.approx(3.0)
     # Well inside lift_down_seconds: this must fail on the heading or not at
     # all, not on the lower-limit clock.
-    seq.step(obs(t + 1.1 + cfg.drill_seconds, yaw=6.0))
+    seq.step(obs(t + 2.1, yaw=6.0))
     assert seq.phase is Phase.LIFT_DOWN
 
 
@@ -487,10 +488,10 @@ def test_the_stationary_guard_waits_for_the_machine_to_stop():
 def test_the_reference_becomes_the_heading_it_settled_at():
     # During the window the reference tracks the machine, so what the guard
     # finally holds is where it came to rest -- not where it was still rolling.
-    # A long drill, so the phase is still running when the window closes and
-    # the assertion is about the guard rather than about the clock.
+    # No upper limit switch in these ticks, so the phase is still running when
+    # the window closes and the assertion is about the guard, not the clock.
     cfg = config(yaw_stationary_abort_deg=4.0, yaw_settle_seconds=1.5,
-                 drill_seconds=20.0, lift_up_seconds=20.0)
+                 lift_up_seconds=20.0)
     seq = AutonomousSequence(cfg)
     t = drive_to_enter(seq, yaw=0.0)
     seq.step(obs(t + 1.0, distance=cfg.entry_distance + 0.1, yaw=0.0))

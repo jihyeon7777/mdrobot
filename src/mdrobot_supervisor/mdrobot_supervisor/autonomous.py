@@ -13,9 +13,9 @@ autonomous. From there:
     ALIGN       creep forward while strafing to put the plate on centre
     ENTER       the plate has gone out of view under the car; keep going blind
                 for entry_distance, measured on the wheel encoders
-    DRILL       stop driving. The bit turns for drill_seconds; the lift pushes
-                it up into the underbody for the first lift_up_seconds of that,
-                then holds while the drill finishes
+    DRILL       stop driving. The lift pushes the bit up into the underbody
+                until the upper limit switch closes, and the bit turns for
+                exactly that long — the switch stops both together
     LIFT_DOWN   drill off, lift back down for lift_down_seconds. Nothing rises
                 again until it is clear
     RAISE       actuator up into the hole for actuator_seconds
@@ -231,7 +231,6 @@ class AutonomousConfig:
     # drill start together: the drill spins while the lift pushes it up into the
     # underbody. Timed for now — the limit switches that should end the up
     # stroke are not fitted.
-    drill_seconds: float = 20.0  # how long the bit turns, all told
     lift_up_seconds: float = 10.0  # of that, how long the lift keeps pushing up
     lift_down_seconds: float = 10.0  # bringing the lift back down afterwards
 
@@ -354,7 +353,7 @@ class AutonomousConfig:
         for name in ("plate_timeout", "min_approach_width", "align_gain",
                      "approach_speed",
                      "align_max_speed", "align_offset_max_age",
-                     "entry_distance", "entry_speed", "drill_seconds",
+                     "entry_distance", "entry_speed",
                      "lift_up_seconds", "lift_down_seconds",
                      "hole_timeout", "hole_max_speed",
                      "actuator_seconds", "spray_seconds", "retract_seconds",
@@ -669,11 +668,22 @@ class AutonomousSequence:
                           message=self._message)
 
         if self.phase is Phase.DRILL:
-            # The bit turns for the whole phase; the lift pushes up into the
-            # underbody until the upper limit switch closes, and then holds
-            # while the drill finishes. lift_up_seconds is only the backstop for
-            # a switch that never closes — a broken wire must not mean pushing
-            # until the phase ends.
+            # The bit turns for exactly as long as the lift pushes it up, and
+            # the upper limit switch stops both together.
+            #
+            # It used to turn on a clock of its own (drill_seconds, 20 s) that
+            # had no relation to the stroke. The switch closes around 53 s, so
+            # the bit stopped with a third of the travel still to go and the
+            # lift spent the rest of it pressing a stationary bit into the
+            # underbody. The switch is the only thing that knows when the hole
+            # is through; a clock never did.
+            #
+            # lift_up_seconds is the backstop for a switch that never closes —
+            # a broken wire must not mean pushing until the phase ends. It is a
+            # fault timeout, not the stroke length: reaching it leaves a
+            # shallower hole, which is worth carrying on with, unlike the lower
+            # switch, where an unknown position means raising the actuator into
+            # the lift.
             if obs.at_top and not self._top_seen:
                 self._top_seen = True
                 self._lift_stopped_by = f"upper limit at {elapsed:.1f} s"
@@ -686,24 +696,20 @@ class AutonomousSequence:
                 self._lift_stopped_by = (
                     f"NO upper limit in {cfg.lift_up_seconds:.0f} s"
                 )
-            rising = not self._top_seen
-            # The bit turns for drill_seconds and no longer. The lift still runs
-            # to its switch, so on the rare stroke that outlasts the drill the
-            # phase waits for it with the bit already off.
-            cutting = elapsed < cfg.drill_seconds
-            if not cutting and not rising:
+            if self._top_seen:
+                # Same tick for both: the Action below carries drill=0, so the
+                # bit stops on the reading that stopped the lift rather than a
+                # tick later.
                 self._enter(Phase.LIFT_DOWN, obs,
                             f"hole cut, lift stopped by {self._lift_stopped_by}; "
                             f"lowering the lift")
                 return Action(lift=-1, phase=self.phase, message=self._message)
             self._message = (
-                (f"drilling {elapsed:.1f}/{cfg.drill_seconds:.1f} s"
-                 if cutting else "drill done")
-                + (", lift rising to the upper limit" if rising
-                   else f", lift held — stopped by {self._lift_stopped_by}")
+                f"drilling {elapsed:.1f} s, lift rising to the upper limit "
+                f"(fault backstop {cfg.lift_up_seconds:.0f} s)"
             )
-            return Action(lift=1 if rising else 0, drill=1 if cutting else 0,
-                          phase=self.phase, message=self._message)
+            return Action(lift=1, drill=1, phase=self.phase,
+                          message=self._message)
 
         if self.phase is Phase.LIFT_DOWN:
             # The drill is off from here. Nothing goes up again until the lift is
