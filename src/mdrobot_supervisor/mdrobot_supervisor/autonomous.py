@@ -15,7 +15,8 @@ autonomous. From there:
                 for entry_distance, measured on the wheel encoders
     DRILL       stop driving. The lift pushes the bit up into the underbody
                 until the upper limit switch closes, and the bit turns for
-                exactly that long — the switch stops both together
+                exactly that long — the switch stops both together, on no
+                clock at all
     LIFT_DOWN   drill off, lift back down for lift_down_seconds. Nothing rises
                 again until it is clear
     RAISE       actuator up into the hole for actuator_seconds
@@ -231,7 +232,7 @@ class AutonomousConfig:
     # drill start together: the drill spins while the lift pushes it up into the
     # underbody. Timed for now — the limit switches that should end the up
     # stroke are not fitted.
-    lift_up_seconds: float = 10.0  # of that, how long the lift keeps pushing up
+    lift_up_seconds: float = 0.0  # fault backstop for the upper switch; 0 = off
     lift_down_seconds: float = 10.0  # bringing the lift back down afterwards
 
     # Hole alignment, off the upward-facing camera. Offsets are normalised
@@ -354,7 +355,7 @@ class AutonomousConfig:
                      "approach_speed",
                      "align_max_speed", "align_offset_max_age",
                      "entry_distance", "entry_speed",
-                     "lift_up_seconds", "lift_down_seconds",
+                     "lift_down_seconds",
                      "hole_timeout", "hole_max_speed",
                      "actuator_seconds", "spray_seconds", "retract_seconds",
                      "yaw_timeout", "yaw_deadband_deg", "yaw_gain",
@@ -364,6 +365,14 @@ class AutonomousConfig:
                      "max_find_hole_seconds", "max_hole_align_seconds"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
+        # 0 means off, the same as lift_max_run in the manual equipment config.
+        # The upper switch is fitted and ends the stroke; a clock alongside it
+        # can only cut a hole short.
+        if self.lift_up_seconds < 0:
+            raise ValueError(
+                f"lift_up_seconds must be 0 (no backstop) or positive, got "
+                f"{self.lift_up_seconds}"
+            )
         for name in ("align_tolerance", "hole_tolerance"):
             value = getattr(self, name)
             if value <= 0 or value >= 1:
@@ -678,16 +687,17 @@ class AutonomousSequence:
             # underbody. The switch is the only thing that knows when the hole
             # is through; a clock never did.
             #
-            # lift_up_seconds is the backstop for a switch that never closes —
-            # a broken wire must not mean pushing until the phase ends. It is a
-            # fault timeout, not the stroke length: reaching it leaves a
-            # shallower hole, which is worth carrying on with, unlike the lower
-            # switch, where an unknown position means raising the actuator into
-            # the lift.
+            # lift_up_seconds is an optional backstop for a switch that never
+            # closes, and it is OFF by default. Drilling through takes as long
+            # as it takes: any clock set alongside the switch can only stop the
+            # bit short of the hole it was cutting, and the operator's brake is
+            # the thing that stops a run that has gone wrong. Set it positive
+            # only to bound the broken-wire case.
             if obs.at_top and not self._top_seen:
                 self._top_seen = True
                 self._lift_stopped_by = f"upper limit at {elapsed:.1f} s"
-            elif not self._top_seen and elapsed >= cfg.lift_up_seconds:
+            elif (not self._top_seen and cfg.lift_up_seconds > 0
+                    and elapsed >= cfg.lift_up_seconds):
                 # Fault timeout, not the stroke length. A switch that never
                 # closes leaves a shallower hole, which is worth carrying on
                 # with — unlike the lower one, where an unknown position means
@@ -704,9 +714,11 @@ class AutonomousSequence:
                             f"hole cut, lift stopped by {self._lift_stopped_by}; "
                             f"lowering the lift")
                 return Action(lift=-1, phase=self.phase, message=self._message)
+            backstop = (f", backstop {cfg.lift_up_seconds:.0f} s"
+                        if cfg.lift_up_seconds > 0 else "")
             self._message = (
-                f"drilling {elapsed:.1f} s, lift rising to the upper limit "
-                f"(fault backstop {cfg.lift_up_seconds:.0f} s)"
+                f"drilling {elapsed:.1f} s, lift rising to the upper limit"
+                f"{backstop}"
             )
             return Action(lift=1, drill=1, phase=self.phase,
                           message=self._message)

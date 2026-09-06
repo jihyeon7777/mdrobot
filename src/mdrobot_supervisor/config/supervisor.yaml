@@ -281,12 +281,18 @@
     # the stroke pressing a stationary bit into the underbody. The switch ends
     # both together now, which is the only signal that knows the hole is
     # through.
-    auto_lift_up_seconds: 70.0    # NOT the stroke length -- the upper limit
-                                  # switch ends it, same as the lower one. This
-                                  # is the fault timeout: a full stroke measured
-                                  # ~53 s, so reaching 70 with no switch means it
-                                  # never closed. That only costs a shallower
-                                  # hole, so it carries on rather than aborting.
+    # 0 = no backstop, which is what this is set to. The upper switch is fitted
+    # and it ends the stroke; drilling through takes as long as it takes, and a
+    # clock running alongside the switch can only stop the bit short of the hole
+    # it was cutting. 70 was tried on 2026-09-06 and removed the same day for
+    # that reason. A run that has gone wrong is stopped by the operator's brake,
+    # which works in every phase.
+    #
+    # Set it positive only to bound the broken-wire case: reaching it stops bit
+    # and lift together and logs "NO upper limit in N s", and costs a shallower
+    # hole rather than an abort -- unlike the lower switch below, where an
+    # unknown position means raising the actuator into a lift that is still up.
+    auto_lift_up_seconds: 0.0
     auto_lift_down_seconds: 70.0  # NOT the stroke length -- the lower limit
                                   # switch ends it. This is the fault timeout:
                                   # a full stroke measured ~53 s, so reaching

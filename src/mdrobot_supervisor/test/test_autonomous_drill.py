@@ -6,9 +6,11 @@ of the way from the top and the lift spent the rest of the stroke pressing a
 stationary bit into the underbody. A clock never knew when the hole was
 through; the switch does.
 
-The fault case still has to be bounded: a switch that never closes must not
-mean a bit that turns until the phase is abandoned. lift_up_seconds is that
-backstop, and it now bounds the bit as well as the lift.
+lift_up_seconds is an OPTIONAL backstop for a switch that never closes, and
+it is off by default. Drilling through takes as long as it takes, so any clock
+running alongside the switch can only stop the bit short of the hole it was
+cutting; a run that has gone wrong is stopped by the operator's brake, which
+works in every phase.
 """
 
 import pytest
@@ -32,7 +34,7 @@ def config(**overrides) -> AutonomousConfig:
         entry_distance=1.0,
         entry_speed=0.08,
         min_approach_width=0.45,
-        lift_up_seconds=FAULT_BACKSTOP,
+        lift_up_seconds=0.0,   # no backstop, as shipped
         lift_down_seconds=70.0,
     )
     base.update(overrides)
@@ -103,9 +105,9 @@ def test_the_message_says_the_switch_stopped_it():
     assert "upper limit" in act.message
 
 
-def test_a_switch_that_never_closes_still_stops_the_bit():
-    """The fault case. A broken wire must not leave the bit turning."""
-    cfg = config()
+def test_a_switch_that_never_closes_stops_the_bit_IF_a_backstop_is_set():
+    """The opt-in fault case."""
+    cfg = config(lift_up_seconds=FAULT_BACKSTOP)
     seq, t = drilling(cfg)
     act = seq.step(obs(t + FAULT_BACKSTOP + 0.1))
     assert act.drill == 0
@@ -121,6 +123,47 @@ def test_the_fault_backstop_bounds_the_bit_not_a_separate_clock():
     seq, t = drilling(cfg)
     assert seq.step(obs(t + 7.9)).drill == 1
     assert seq.step(obs(t + 8.1)).drill == 0
+
+
+# --- no clock at all, which is how it ships ---------------------------------
+
+def test_as_shipped_there_is_no_backstop():
+    assert config().lift_up_seconds == 0
+
+
+def test_with_no_backstop_the_bit_turns_until_the_switch_however_long():
+    """Well past the 53 s stroke and past the 70 s backstop that was tried and
+    removed: neither number means anything any more."""
+    cfg = config()
+    seq, t = drilling(cfg)
+    for elapsed in (STROKE_SECONDS, FAULT_BACKSTOP, 300.0, 3600.0):
+        act = seq.step(obs(t + elapsed))
+        assert seq.phase is Phase.DRILL, f"stopped on its own at {elapsed} s"
+        assert act.drill == 1 and act.lift == 1
+
+
+def test_with_no_backstop_the_switch_still_ends_it():
+    """Removing the clock must not remove the thing that actually stops it."""
+    cfg = config()
+    seq, t = drilling(cfg)
+    seq.step(obs(t + 600.0))
+    act = seq.step(obs(t + 601.0, at_top=True))
+    assert act.drill == 0 and act.lift == -1
+    assert seq.phase is Phase.LIFT_DOWN
+
+
+def test_with_no_backstop_the_message_promises_no_clock():
+    cfg = config()
+    seq, t = drilling(cfg)
+    act = seq.step(obs(t + 100.0))
+    assert "backstop" not in act.message
+
+
+def test_a_negative_backstop_is_refused():
+    """0 is off and positive is a timeout; a negative would silently read as a
+    timeout that has already expired."""
+    with pytest.raises(ValueError, match="lift_up_seconds"):
+        config(lift_up_seconds=-1.0)
 
 
 def test_nothing_turns_the_bit_after_the_phase():
